@@ -1,0 +1,28 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "37a290b11e1bc1fcb694d05bdb70265c"
+name = "order-sync"
+application_url = "https://example.com"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+include_config_on_deploy = true
+
+[webhooks]
+api_version = "2026-04"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/uninstalled" ]
+  uri = "/webhooks/app/uninstalled"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/scopes_update" ]
+  uri = "/webhooks/app/scopes_update"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_companies,write_companies,read_customers,write_customers,write_draft_orders,read_draft_orders,write_inventory,read_inventory,write_order_edits,read_order_edits,read_orders,write_orders,read_products,write_products,customer_write_customers,customer_read_customers,customer_read_draft_orders,customer_read_orders,customer_write_orders"
+
+[auth]
+redirect_urls = [ "https://example.com/api/auth" ]
