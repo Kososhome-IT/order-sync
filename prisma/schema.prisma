@@ -32,3 +32,14 @@ model Session {
   refreshToken        String?
   refreshTokenExpires DateTime?
 }
+
+model OrderSync {
+  id                 Int      @id @default(autoincrement())
+  netsuiteOrderId    String   @unique
+  netsuiteCompanyId  String
+  shopifyOrderId     String?
+  status             String
+  errorMessage       String?
+  createdAt          DateTime @default(now())
+}
+
