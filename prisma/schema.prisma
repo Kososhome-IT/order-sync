@@ -38,8 +38,12 @@ model OrderSync {
   netsuiteOrderId    String   @unique
   netsuiteCompanyId  String
   shopifyOrderId     String?
+  action             String   @default("CREATE")
   status             String
   errorMessage       String?
   createdAt          DateTime @default(now())
+  updatedAt          DateTime @default(now()) @updatedAt
 }
+
+
 
