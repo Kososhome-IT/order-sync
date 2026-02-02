@@ -24,18 +24,25 @@ export default function OrderLogsPage() {
   const logs = useLoaderData();
 
   return (
-    <s-page title="Order Sync Dashboard">
-      <s-card>
-        <s-stack direction="inline" align="space-between">
-          <s-text variant="heading-md">
+    <s-page title="Order Sync Dashboard" inlineSize="large">
+      <s-section>
+        <s-grid
+  gridTemplateColumns="auto auto"
+  gap="small"
+  placeContent="space-between space-between"
+> <s-grid-item>
+          <s-heading variant="heading-md">
             Recent Order Sync Activity
-          </s-text>
+          </s-heading>
+ </s-grid-item>
+           <s-grid-item>
           <s-badge tone="info">{logs.length} records</s-badge>
-        </s-stack>
-
-        <s-text tone="subdued" style={{ marginTop: "8px" }}>
-          Displays the most recent order sync operations from NetSuite to Shopify.
-        </s-text>
+           </s-grid-item>
+        </s-grid>
+  <s-paragraph tone="info" color="base" padding="base">
+    Displays the most recent order sync operations from NetSuite to Shopify.
+  </s-paragraph>
+        
 
         <s-divider style={{ margin: "16px 0" }}></s-divider>
 
@@ -43,8 +50,8 @@ export default function OrderLogsPage() {
           <s-text tone="subdued">No logs available.</s-text>
         ) : (
           <s-table>
-            <s-table-head>
-              <s-table-row>
+             <s-table-header-row>
+              
                 <s-table-header>NetSuite Company</s-table-header>
                 <s-table-header>NetSuite Order ID</s-table-header>
                 <s-table-header>Shopify Order ID</s-table-header>
@@ -52,8 +59,8 @@ export default function OrderLogsPage() {
                 <s-table-header>Action</s-table-header>
                 <s-table-header>Status</s-table-header>
                 <s-table-header>Updated At</s-table-header>
-              </s-table-row>
-            </s-table-head>
+             
+             </s-table-header-row>
 
             <s-table-body>
               {logs.map((entry) => (
@@ -106,7 +113,7 @@ export default function OrderLogsPage() {
             </s-table-body>
           </s-table>
         )}
-      </s-card>
+      </s-section>
     </s-page>
   );
 }
