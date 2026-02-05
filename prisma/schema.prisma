@@ -35,14 +35,31 @@ model Session {
 
 model OrderSync {
   id                 Int      @id @default(autoincrement())
-  netsuiteOrderId    String   @unique
-  netsuiteCompanyId  String
-  shopifyOrderId     String?
+  netsuiteOrderId    String?  @unique
+  shopifyOrderId     String?  @unique
+  netsuiteCompanyId  String?
+  originSystem       String   // SHOPIFY | NETSUITE
+  lastSyncedFrom     String   // SHOPIFY | NETSUITE
+  status             String   // PENDING | SUCCESS | FAILED | PARTIAL
   action             String   @default("CREATE")
-  status             String
   errorMessage       String?
   createdAt          DateTime @default(now())
-  updatedAt          DateTime @default(now()) @updatedAt
+  updatedAt          DateTime @updatedAt
+  logs               OrderSyncLog[]
+}
+
+model OrderSyncLog {
+  id              Int      @id @default(autoincrement())
+  orderSyncId     Int
+  orderSync       OrderSync @relation(fields: [orderSyncId], references: [id])
+  sourceSystem    String   // SHOPIFY | NETSUITE
+  direction       String   // SHOPIFY_TO_NETSUITE | NETSUITE_TO_SHOPIFY
+  eventType       String   // CREATE | UPDATE | CANCEL | FULFILL | RETRY
+  status          String   // RECEIVED | SUCCESS | FAILED
+  message         String?
+  rawPayload      Json?
+  errorPayload    Json?
+  createdAt       DateTime @default(now())
 }
 
 
