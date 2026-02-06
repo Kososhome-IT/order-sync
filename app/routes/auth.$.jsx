@@ -1,6 +1,6 @@
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
-import { registerOrderWebhooks } from "../utils/registerOrderWebhooks";
+// import { registerOrderWebhooks } from "../utils/registerOrderWebhooks";
 
 // export const loader = async ({ request }) => {
 //  const { admin } = await authenticate.admin(request);
@@ -22,10 +22,10 @@ export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
   console.log("🔥 ADMIN CLIENT READY");
 
-  await registerOrderWebhooks(
-    admin,
-    process.env.SHOPIFY_APP_URL
-  );
+  // await registerOrderWebhooks(
+  //   admin,
+  //   process.env.SHOPIFY_APP_URL
+  // );
 
   console.log("🔥 registerOrderWebhooks CALLED");
 

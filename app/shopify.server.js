@@ -6,6 +6,7 @@ import {
 } from "@shopify/shopify-app-react-router/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
+import { webhooks } from "./utils/registerOrderWebhooks";
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -22,6 +23,22 @@ const shopify = shopifyApp({
   ...(process.env.SHOP_CUSTOM_DOMAIN
     ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }
     : {}),
+  hooks: {
+    afterAuth: async ({ session }) => {
+     
+        console.log("🔥 afterAuth fired for:", session.shop);
+
+        await shopify.registerWebhooks({
+          session,
+          webhooks,
+        });
+
+        console.log("✅ Webhooks registered successfully");
+    
+        console.error("❌ Webhook registration failed:", error);
+      
+    },
+  }  
 });
 
 export default shopify;
