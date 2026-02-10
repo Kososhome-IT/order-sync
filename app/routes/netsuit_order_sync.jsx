@@ -1,6 +1,12 @@
 import prisma from "../db.server";
 import { sessionStorage } from "../shopify.server";
 import { createAdminApiClient } from "@shopify/admin-api-client";
+import {
+  SYSTEM,
+  DIRECTION,
+  EVENT_TYPE,
+  STATUS,
+} from "../constants/orderSync";
 
 /* -------------------------
    JSON response helper
@@ -143,8 +149,9 @@ export async function action({ request }) {
     data: {
       netsuiteOrderId: payload.orderId,
       netsuiteCompanyId: payload.companyLocationId,
-      // shopifyOrderId: orderCreate.order.id,
-      status: "SUCCESS",
+      originSystem: SYSTEM.NETSUITE,
+      lastSyncedFrom: SYSTEM.NETSUITE,
+      status: STATUS.SUCCESS,
     },
   });
 
