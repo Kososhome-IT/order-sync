@@ -18,6 +18,39 @@ function jsonResponse(data, status = 200) {
   });
 }
 
+// helper to get varient iod from sku
+async function getVariantIdBySKU(admin, sku) {
+  const query = `
+    query getVariantBySku($query: String!) {
+      productVariants(first: 1, query: $query) {
+        edges {
+          node {
+            id
+            sku
+          }
+        }
+      }
+    }
+  `;
+
+  const res = await admin.request(query, {
+    variables: {
+      query: `sku:${sku}`,
+    },
+  });
+
+  const edges = res?.data?.productVariants?.edges;
+
+  if (!edges || edges.length === 0) {
+    throw new Error(`Variant not found for SKU: ${sku}`);
+  }
+
+  return edges[0].node.id;
+}
+
+//  end 
+
+
 export async function action({ request }) {
   const SHOP_DOMAIN = process.env.SHOP;
   const API_VERSION = "2025-04";
@@ -34,6 +67,8 @@ export async function action({ request }) {
   } catch {
     return jsonResponse({ error: "Invalid JSON body" }, 400);
   }
+
+
 
   console.log("📥 NETSUITE PAYLOAD:", JSON.stringify(payload, null, 2));
 
@@ -82,8 +117,31 @@ export async function action({ request }) {
     apiVersion: API_VERSION,
     accessToken: session.accessToken,
   });
+//  preaparing lineitems from payload
+ const lineItems = [];
 
- 
+for (const item of payload.items) {
+  if (!item.sku) {
+    return jsonResponse(
+      { error: "SKU is required for all line items" },
+      400
+    );
+  }
+
+  try {
+    const variantId = await getVariantIdBySKU(admin, item.sku);
+
+    lineItems.push({
+      variantId,
+      quantity: item.quantity,
+    });
+  } catch (error) {
+    return jsonResponse(
+      { error: error.message },
+      400
+    );
+  }
+}
   /* 7 CREATE ORDER */
   const orderMutation = `
     mutation orderCreate($order: OrderCreateOrderInput!) {
@@ -115,10 +173,7 @@ export async function action({ request }) {
           payload.paymentStatus === "PAID"
             ? "PAID"
             : "PENDING",
-        lineItems: payload.items.map((item) => ({
-          variantId: item.variantId, // REQUIRED
-          quantity: item.quantity,
-        })),
+        lineItems
       },
     },
   });
