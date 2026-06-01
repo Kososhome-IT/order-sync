@@ -21,6 +21,7 @@ export default function App() {
         <s-link hef="/app/mappings">Field Mappings</s-link>
         <s-link href="/app/logs">Sync Logs</s-link>
         <s-link href="/app/sync">Manual Sync</s-link>
+        <s-link href="/api/netsuite/test">test netsuite Connection</s-link>
         <s-link href="/app/settings">Settings</s-link>
       </s-app-nav>
       <Outlet />

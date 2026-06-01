@@ -1,71 +1,31 @@
-import { authenticate } from "../shopify.server";
-import { getNetSuiteConfig, updateTestResult } from "../models/netsuite-config.model";
-import { createServiceLogger } from "../services/common/logger";
 
-const log = createServiceLogger("netsuite-test");
+import { json } from "@remix-run/node";
+import { useLoaderData } from "react-router";
+import { netsuite } from "../services/netsuite/netsuite.server";
 
-export async function action({ request }) {
-  await authenticate.admin(request);
 
-  try {
-    const config = await getNetSuiteConfig();
 
-    if (!config) {
-      return new Response(
-        JSON.stringify({ success: false, error: "NetSuite configuration not found" }),
-        {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
-        }
-      );
-    }
+export async function loader() {
+  // invetory item test
+  const itemTest = await netsuite.request("/inventoryItem?limit=1", "GET");
 
-    const { createNetSuiteClient } = await import(
-      "../services/netsuite/netsuite.client"
-    );
+ // orders check
+  const orderTest = await netsuite.request("/salesOrder?limit=1", "GET");
 
-    const client = await createNetSuiteClient();
+  return json({
+    inventoryItemStatus: itemTest.status,
+    salesOrderStatus: orderTest.status,
+    inventoryData: itemTest.data,
+    orderData: orderTest.data,
+  });
+}
 
-    // Test REST API connectivity
-    await client.get("/record/v1/customer?limit=1");
-
-    await updateTestResult(config.id, "success");
-
-    log.info("NetSuite connection test succeeded");
-
-    return new Response(
-      JSON.stringify({
-        success: true,
-        message: "Successfully connected to NetSuite",
-        accountId: config.accountId,
-        testedAt: new Date().toISOString(),
-      }),
-      {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }
-    );
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Connection failed";
-
-    log.error({ error: errorMessage }, "NetSuite connection test failed");
-
-    const config = await getNetSuiteConfig();
-    if (config) {
-      await updateTestResult(config.id, "failed");
-    }
-
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: errorMessage,
-        testedAt: new Date().toISOString(),
-      }),
-      {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      }
-    );
-  }
+export default function TestNS() {
+  const data = useLoaderData();
+  return (
+    <div style={{ padding: "20px", fontFamily: "sans-serif" }}>
+      <h1>NetSuite Connection Test</h1>
+      <pre>{JSON.stringify(data, null, 2)}</pre>
+    </div>
+  );
 }

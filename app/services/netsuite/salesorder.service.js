@@ -28,37 +28,29 @@ const RESTLET_DEPLOY_ID = "customdeploy_rl_salesorder_create";
  * population, custom-field mapping, and returns the created record's
  * internal ID and transaction ID.
  */
-export async function createSalesOrder(
-  client,
-  order,
-) {
+export async function createSalesOrder(client, order) {
   log.info(
-    { entity: order.entity, itemCount: order.items.length },
+    {
+      entity: order.entity,
+      itemCount: order.item?.items?.length || 0,
+    },
     "Creating sales order",
   );
 
-  const response = await client.callRestlet(
-    RESTLET_SCRIPT_ID,
-    RESTLET_DEPLOY_ID,
-    {
-      operation: "create",
-      data: order,
-    },
-  );
+  const response = await client.createOrder(order);
 
-  if (!response.success || !response.data) {
+  if (!response.success) {
     throw new NetSuiteError(
-      `Sales order creation failed: ${response.error?.message ?? "unknown error"}`,
-      response.error?.code,
+      `Sales order creation failed`,
     );
   }
 
   log.info(
-    { internalId: response.data.internalId, tranId: response.data.tranId },
+    { status: response.status },
     "Sales order created",
   );
 
-  return response.data;
+  return response;
 }
 
 /**
