@@ -1,9 +1,9 @@
 import { netsuite } from "./netsuite.server";
 
-export async function findCustomerByEmail(email) {
+export async function findItemBySku(sku) {
   const result = await netsuite.request(
-    `/customer?q=${encodeURIComponent(
-      `email IS "${email}"`
+    `/inventoryItem?q=${encodeURIComponent(
+      `itemId IS "${sku}"`
     )}`,
     "GET"
   );
