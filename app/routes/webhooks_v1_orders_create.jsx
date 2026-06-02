@@ -1,4 +1,6 @@
 import { json } from "../utils/jsonResponse";
+import { processShopifyOrder }
+  from "../services/netsuite/orderSync.service";
 import prisma from "../db.server";
 import { verifyShopifyHmac } from "../utils/verifyShopifyHmac";
 import {
@@ -42,6 +44,18 @@ export async function action({ request }) {
       rawPayload: payload,
     },
   });
+// 3.  Queue NetSuite sync job
+//   await orderQueue.add(
+//   "shopify-order-create",
+//   {
+//     orderSyncId: orderSync.id,
+//     shopifyOrderId,
+//   }
+// );
+
+await processShopifyOrder(
+  orderSync.id
+);
 
   return json({ ok: true });
 }
