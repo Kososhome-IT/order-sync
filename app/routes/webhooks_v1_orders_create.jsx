@@ -9,19 +9,38 @@ import {
   EVENT_TYPE,
   STATUS,
 } from "../constants/orderSync";
-
+ 
 export async function action({ request }) {
   const body = await request.text();
-  verifyShopifyHmac(request, body);
-
+  if (!verifyShopifyHmac(request, body)) {
+    return json({ ok: false, error: "Invalid Shopify HMAC" }, { status: 401 });
+  }
+ 
   const payload = JSON.parse(body);
   const shopifyOrderId = String(payload.id);
-
+ 
   // 1. Create or find OrderSync (STATE)
   let orderSync = await prisma.orderSync.findUnique({
     where: { shopifyOrderId },
   });
-
+ 
+  if (orderSync?.status === STATUS.SUCCESS || orderSync?.netsuiteOrderId) {
+    return json({
+      ok: true,
+      skipped: true,
+      reason: "Order already synced",
+      netsuiteOrderId: orderSync.netsuiteOrderId,
+    });
+  }
+ 
+  if (orderSync?.status === STATUS.PROCESSING) {
+    return json({
+      ok: true,
+      skipped: true,
+      reason: "Order sync already in progress",
+    });
+  }
+ 
   if (!orderSync) {
     orderSync = await prisma.orderSync.create({
       data: {
@@ -32,7 +51,26 @@ export async function action({ request }) {
       },
     });
   }
-
+ 
+  const claimed = await prisma.orderSync.updateMany({
+    where: {
+      id: orderSync.id,
+      status: { in: [STATUS.PENDING, STATUS.FAILED] },
+    },
+    data: {
+      status: STATUS.PROCESSING,
+      errorMessage: null,
+    },
+  });
+ 
+  if (claimed.count === 0) {
+    return json({
+      ok: true,
+      skipped: true,
+      reason: "Order sync already handled",
+    });
+  }
+ 
   // 2. Create log (EVENT)
   await prisma.orderSyncLog.create({
     data: {
@@ -52,10 +90,22 @@ export async function action({ request }) {
 //     shopifyOrderId,
 //   }
 // );
-
-await processShopifyOrder(
-  orderSync.id
-);
-
+ 
+  try {
+    await processShopifyOrder(
+      orderSync.id
+    );
+  } catch (error) {
+    await prisma.orderSync.update({
+      where: { id: orderSync.id },
+      data: {
+        status: STATUS.FAILED,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      },
+    });
+ 
+    throw error;
+  }
+ 
   return json({ ok: true });
 }
