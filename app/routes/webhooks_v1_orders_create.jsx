@@ -2,7 +2,7 @@ import { json } from "../utils/jsonResponse";
 import { processShopifyOrder }
   from "../services/netsuite/orderSync.service";
 import prisma from "../db.server";
-import { verifyShopifyHmac } from "../utils/verifyShopifyHmac";
+import { verifyShopifyHmacResult } from "../utils/verifyShopifyHmac";
 import {
   SYSTEM,
   DIRECTION,
@@ -12,8 +12,20 @@ import {
  
 export async function action({ request }) {
   const body = await request.text();
-  if (!verifyShopifyHmac(request, body)) {
-    return json({ ok: false, error: "Invalid Shopify HMAC" }, { status: 401 });
+  const hmacResult = verifyShopifyHmacResult(request, body);
+ 
+  if (!hmacResult.ok) {
+    console.warn("Rejected Shopify orders/create webhook", {
+      reason: hmacResult.reason,
+      topic: request.headers.get("x-shopify-topic"),
+      shop: request.headers.get("x-shopify-shop-domain"),
+      webhookId: request.headers.get("x-shopify-webhook-id"),
+    });
+ 
+    return json(
+      { ok: false, error: "Invalid Shopify HMAC", reason: hmacResult.reason },
+      { status: 401 },
+    );
   }
  
   const payload = JSON.parse(body);
@@ -109,3 +121,4 @@ export async function action({ request }) {
  
   return json({ ok: true });
 }
+ 
