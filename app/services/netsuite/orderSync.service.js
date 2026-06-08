@@ -30,7 +30,7 @@ const PAYMENT_TERM_MAP = {
   "Net 90": "9",
 };
 
-const shopifyPaymentTerm = shopifyOrder.payment_terms_name;
+
 const netsuiteTermId = PAYMENT_TERM_MAP[shopifyPaymentTerm] || NETSUITE_DEFAULTS.termsId;
   if (!sync) {
     throw new Error(
@@ -49,6 +49,7 @@ const netsuiteTermId = PAYMENT_TERM_MAP[shopifyPaymentTerm] || NETSUITE_DEFAULTS
   });
 
   const shopifyOrder = log.rawPayload;
+  const shopifyPaymentTerm = shopifyOrder.payment_terms_name;
 
   //  creating netsuite line from shopify order line items 
   const nsLines = [];
