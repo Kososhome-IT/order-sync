@@ -14,11 +14,11 @@ export async function processShopifyOrder(orderSyncId) {
   const NETSUITE_DEFAULTS = {
   customFormId: "216",
   subsidiaryId: "2",
-  termsId: "2",
   accountSpecId: "562637",
   orderSourceId: "8",
   orderAttributeId: "54",
   segmentId: "3",
+  wmsOrderTypeNewId: process.env.NETSUITE_WMS_ORDER_TYPE_NEW_ID,
 };
  
   if (!sync) {
@@ -84,20 +84,28 @@ export async function processShopifyOrder(orderSyncId) {
     );
   }
  
-  const otherRefNumDummy = shopifyOrder.name?.replace("#", "")
+  const shopifyOrderNumber = shopifyOrder.name || String(shopifyOrder.order_number || "");
+  const shopifyPoNumber = getShopifyPoNumber(shopifyOrder);
+ 
+  if (!NETSUITE_DEFAULTS.wmsOrderTypeNewId) {
+    throw new Error("NETSUITE_WMS_ORDER_TYPE_NEW_ID is required");
+  }
  
   const payload = {
     customForm: { id: NETSUITE_DEFAULTS.customFormId, },
     entity: { id: customer.id },
     subsidiary: { id:  NETSUITE_DEFAULTS.subsidiaryId, },
-    terms: { id: NETSUITE_DEFAULTS.termsId },
-    otherRefNum: otherRefNumDummy,
+    ...(shopifyPoNumber ? { otherRefNum: shopifyPoNumber } : {}),
+    custbody_ch_om_web_order_number: shopifyOrderNumber,
     custbody_ch_so_acc_spec: { id: "562637" },
     custbody_ch_om_ordersource: { id: NETSUITE_DEFAULTS.orderSourceId },
     custbody_ch_ord_attribute: {
       items: [{ id: "54" }],
     },
     cseg1: { id: NETSUITE_DEFAULTS.segmentId },
+    custbody_wmsse_ordertype: {
+      id: NETSUITE_DEFAULTS.wmsOrderTypeNewId,
+    },
     item: {
       items: nsLines,
     }
@@ -153,3 +161,27 @@ function getNetSuiteOrderId(result) {
   return idFromLocation ? decodeURIComponent(idFromLocation) : null;
 }
  
+function getShopifyPoNumber(order) {
+  const directPoNumber =
+    order.po_number ||
+    order.poNumber ||
+    order.purchase_order_number ||
+    order.purchaseOrderNumber;
+ 
+  if (directPoNumber) {
+    return String(directPoNumber);
+  }
+ 
+  const poAttribute = order.note_attributes?.find((attribute) => {
+    const name = String(attribute.name || "").toLowerCase();
+ 
+    return [
+      "po number",
+      "po_number",
+      "purchase order",
+      "purchase order number",
+    ].includes(name);
+  });
+ 
+  return poAttribute?.value ? String(poAttribute.value) : null;
+}

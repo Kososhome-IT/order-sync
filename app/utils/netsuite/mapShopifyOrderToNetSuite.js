@@ -1,4 +1,7 @@
 export function mapShopifyOrderToNetSuite(order) {
+  const shopifyOrderNumber = order.name || String(order.order_number || "");
+  const shopifyPoNumber = getShopifyPoNumber(order);
+ 
   return {
      "customForm": {
     "id": "216"
@@ -9,10 +12,8 @@ export function mapShopifyOrderToNetSuite(order) {
   "subsidiary": {
     "id": "2"
   },
-  "terms": {
-    "id": "2"
-  },
-  "otherRefNum": "92525-112933", // customer po number it should be unique always
+  ...(shopifyPoNumber ? { "otherRefNum": shopifyPoNumber } : {}),
+  "custbody_ch_om_web_order_number": shopifyOrderNumber,
   "custbody_ch_so_acc_spec": {
     "id": "562637"
   },
@@ -42,3 +43,29 @@ export function mapShopifyOrderToNetSuite(order) {
   }
   };
 }
+ 
+function getShopifyPoNumber(order) {
+  const directPoNumber =
+    order.po_number ||
+    order.poNumber ||
+    order.purchase_order_number ||
+    order.purchaseOrderNumber;
+ 
+  if (directPoNumber) {
+    return String(directPoNumber);
+  }
+ 
+  const poAttribute = order.note_attributes?.find((attribute) => {
+    const name = String(attribute.name || "").toLowerCase();
+ 
+    return [
+      "po number",
+      "po_number",
+      "purchase order",
+      "purchase order number",
+    ].includes(name);
+  });
+ 
+  return poAttribute?.value ? String(poAttribute.value) : null;
+}
+ 
