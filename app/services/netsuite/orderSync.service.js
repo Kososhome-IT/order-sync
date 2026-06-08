@@ -31,7 +31,7 @@ const PAYMENT_TERM_MAP = {
 };
 
 
-const netsuiteTermId = PAYMENT_TERM_MAP[shopifyPaymentTerm] || NETSUITE_DEFAULTS.termsId;
+
   if (!sync) {
     throw new Error(
       `OrderSync not found: ${orderSyncId}`
@@ -50,6 +50,7 @@ const netsuiteTermId = PAYMENT_TERM_MAP[shopifyPaymentTerm] || NETSUITE_DEFAULTS
 
   const shopifyOrder = log.rawPayload;
   const shopifyPaymentTerm = shopifyOrder.payment_terms_name;
+  const netsuiteTermId = PAYMENT_TERM_MAP[shopifyPaymentTerm] || NETSUITE_DEFAULTS.termsId;
 
   //  creating netsuite line from shopify order line items 
   const nsLines = [];
