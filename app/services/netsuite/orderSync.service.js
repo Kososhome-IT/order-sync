@@ -94,7 +94,7 @@ const PAYMENT_TERM_MAP = {
     customForm: { id: NETSUITE_DEFAULTS.customFormId, },
     entity: { id: customer.id },
     subsidiary: { id:  NETSUITE_DEFAULTS.subsidiaryId, },
-    // terms: { id: netsuiteTermId },
+    terms: { id: netsuiteTermId },
     otherRefNum: shopifyOrder.po_number,
     custbody_ch_om_web_order_number:otherRefNumDummy,
     custbody_wmsse_ordertype:{id:NETSUITE_DEFAULTS.custbody_wmsse_ordertype},
