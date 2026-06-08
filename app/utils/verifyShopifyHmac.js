@@ -1,30 +1,56 @@
 import crypto from "crypto";
-
-export function verifyShopifyHmac(request, rawBody) {
+ 
+export function verifyShopifyHmacResult(request, rawBody) {
   const hmacHeader = request.headers.get("x-shopify-hmac-sha256");
-
+ 
   if (!hmacHeader) {
-    console.error("❌ Missing X-Shopify-Hmac-Sha256 header");
-    return false;
+    return {
+      ok: false,
+      reason: "missing_x_shopify_hmac_sha256_header",
+    };
   }
-
-  const secret = process.env.SHOPIFY_API_SECRET;
+ 
+  const secret = process.env.SHOPIFY_API_SECRET || process.env.SHOPIFY_API_SECRET_KEY;
   if (!secret) {
-    console.error("❌ SHOPIFY_API_SECRET not set");
-    return false;
+    return {
+      ok: false,
+      reason: "missing_shopify_api_secret_env",
+    };
   }
-
+ 
   const generatedHmac = crypto
     .createHmac("sha256", secret)
     .update(rawBody, "utf8")
     .digest("base64");
-
-  try {
-    return crypto.timingSafeEqual(
-      Buffer.from(generatedHmac, "utf8"),
-      Buffer.from(hmacHeader, "utf8")
-    );
-  } catch (err) {
-    return false;
+ 
+  const generatedBuffer = Buffer.from(generatedHmac, "base64");
+  const headerBuffer = Buffer.from(hmacHeader, "base64");
+ 
+  if (generatedBuffer.length !== headerBuffer.length) {
+    return {
+      ok: false,
+      reason: "hmac_length_mismatch",
+    };
   }
+ 
+  const ok = crypto.timingSafeEqual(generatedBuffer, headerBuffer);
+ 
+  return {
+    ok,
+    reason: ok ? null : "hmac_digest_mismatch",
+  };
 }
+ 
+export function verifyShopifyHmac(request, rawBody) {
+  const result = verifyShopifyHmacResult(request, rawBody);
+ 
+  if (!result.ok) {
+    console.error("Shopify webhook HMAC verification failed", {
+      reason: result.reason,
+    });
+  }
+ 
+  return result.ok;
+}
+ 
+ 
