@@ -53,6 +53,25 @@ export async function action({ request }) {
 //   }
 // );
 
+//  added duplicate protection if order already exist it return back
+const existingSuccess = await prisma.orderSyncLog.findFirst({
+  where: {
+    orderSyncId: orderSync.id,
+    sourceSystem: SYSTEM.NETSUITE,
+    eventType: EVENT_TYPE.CREATE,
+    status: STATUS.SUCCESS,
+  },
+});
+
+if (existingSuccess) {
+  console.log(
+    `Order already synced to NetSuite: ${shopifyOrderId}`
+  );
+
+  return json({ ok: true });
+}
+
+
 await processShopifyOrder(
   orderSync.id
 );

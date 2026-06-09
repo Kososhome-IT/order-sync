@@ -5,6 +5,9 @@ import { findItemBySku, } from "./inventory.service";
 
 
 export async function processShopifyOrder(orderSyncId) {
+    let payload = null;
+
+  try {
   const sync = await prisma.orderSync.findUnique({
     where: {
       id: orderSyncId,
@@ -20,15 +23,15 @@ export async function processShopifyOrder(orderSyncId) {
   segmentId: "3",
   custbody_wmsse_ordertype:"7"
 };
-const PAYMENT_TERM_MAP = {
-  "Due on fulfilment": "null",
-  "Net 7": "11",
-  "Net 15": "1",
-  "Net 30": "2",
-  "Net 45": "8",
-  "Net 60": "3",
-  "Net 90": "9",
-};
+// const PAYMENT_TERM_MAP = {
+//   "Due on fulfilment": "null",
+//   "Net 7": "11",
+//   "Net 15": "1",
+//   "Net 30": "2",
+//   "Net 45": "8",
+//   "Net 60": "3",
+//   "Net 90": "9",
+// };
 
 
 
@@ -49,8 +52,8 @@ const PAYMENT_TERM_MAP = {
   });
 
   const shopifyOrder = log.rawPayload;
-  const shopifyPaymentTerm = shopifyOrder.payment_terms?.payment_terms_name;
-  const netsuiteTermId = PAYMENT_TERM_MAP[shopifyPaymentTerm] || NETSUITE_DEFAULTS.termsId;
+  // const shopifyPaymentTerm = shopifyOrder.payment_terms?.payment_terms_name;
+  // const netsuiteTermId = PAYMENT_TERM_MAP[shopifyPaymentTerm] || NETSUITE_DEFAULTS.termsId;
 
   //  creating netsuite line from shopify order line items 
   const nsLines = [];
@@ -90,7 +93,7 @@ const PAYMENT_TERM_MAP = {
 
   const otherRefNumDummy = shopifyOrder.name?.replace("#", "")
 
-  const payload = {
+  payload = {
     customForm: { id: NETSUITE_DEFAULTS.customFormId, },
     entity: { id: customer.id },
     subsidiary: { id:  NETSUITE_DEFAULTS.subsidiaryId, },
@@ -114,4 +117,65 @@ const PAYMENT_TERM_MAP = {
   console.log("Sales Order Result:", result);
 
   console.log("NetSuite Response:", result);
+  await prisma.orderSyncLog.create({
+  data: {
+    orderSyncId,
+
+    sourceSystem: "NETSUITE",
+    direction: "SHOPIFY_TO_NETSUITE",
+
+    eventType: "CREATE",
+    status: "SUCCESS",
+
+    message: "NetSuite Sales Order created",
+
+    requestPayload: payload,
+    responsePayload: result,
+  },
+});
+await prisma.orderSync.update({
+  where: {
+    id: orderSyncId,
+  },
+  data: {
+    status: "SUCCESS",
+    action: "CREATE",
+    errorMessage: null,
+  },
+});
+  } catch (error) {
+        await prisma.orderSyncLog.create({
+      data: {
+        orderSyncId,
+
+        sourceSystem: "NETSUITE",
+        direction: "SHOPIFY_TO_NETSUITE",
+
+        eventType: "CREATE",
+        status: "FAILED",
+
+        message: error.message,
+
+        requestPayload: payload,
+
+        errorPayload: {
+          message: error.message,
+          stack: error.stack,
+        },
+      },
+    });
+
+        await prisma.orderSync.update({
+      where: {
+        id: orderSyncId,
+      },
+      data: {
+        status: "FAILED",
+        action: "CREATE",
+        errorMessage: error.message,
+      },
+    });
+
+        throw error;
+  }
 }
