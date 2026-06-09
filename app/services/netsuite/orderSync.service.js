@@ -21,7 +21,7 @@ export async function processShopifyOrder(orderSyncId) {
   custbody_wmsse_ordertype:"7"
 };
 const PAYMENT_TERM_MAP = {
-  "Due on fulfilment": "11",
+  "Due on fulfilment": "null",
   "Net 7": "11",
   "Net 15": "1",
   "Net 30": "2",
@@ -49,7 +49,7 @@ const PAYMENT_TERM_MAP = {
   });
 
   const shopifyOrder = log.rawPayload;
-  const shopifyPaymentTerm = shopifyOrder.payment_terms_name;
+  const shopifyPaymentTerm = shopifyOrder.payment_terms?.payment_terms_name;
   const netsuiteTermId = PAYMENT_TERM_MAP[shopifyPaymentTerm] || NETSUITE_DEFAULTS.termsId;
 
   //  creating netsuite line from shopify order line items 
@@ -94,7 +94,6 @@ const PAYMENT_TERM_MAP = {
     customForm: { id: NETSUITE_DEFAULTS.customFormId, },
     entity: { id: customer.id },
     subsidiary: { id:  NETSUITE_DEFAULTS.subsidiaryId, },
-    terms: { id: netsuiteTermId },
     otherRefNum: shopifyOrder.po_number,
     custbody_ch_om_web_order_number:otherRefNumDummy,
     custbody_wmsse_ordertype:{id:NETSUITE_DEFAULTS.custbody_wmsse_ordertype},
@@ -109,16 +108,10 @@ const PAYMENT_TERM_MAP = {
     }
   };
 
-  console.log(
-    "Creating NetSuite Sales Order",
-    JSON.stringify(payload, null, 2)
-  );
+  console.log("Creating NetSuite Sales Order",JSON.stringify(payload, null, 2));
   const result = await netsuite.createOrder(payload);
 
   console.log("Sales Order Result:", result);
 
-  console.log(
-    "NetSuite Response:",
-    result
-  );
+  console.log("NetSuite Response:", result);
 }
