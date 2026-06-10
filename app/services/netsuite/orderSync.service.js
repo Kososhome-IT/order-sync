@@ -113,7 +113,7 @@ export async function processShopifyOrder(orderSyncId) {
 
   console.log("Creating NetSuite Sales Order",JSON.stringify(payload, null, 2));
   const result = await netsuite.createOrder(payload);
-
+const netsuiteOrderId = result.location?.split("/").pop();
   console.log("Sales Order Result:", result);
 
   console.log("NetSuite Response:", result);
@@ -138,6 +138,18 @@ await prisma.orderSync.update({
     id: orderSyncId,
   },
   data: {
+    status: "SUCCESS",
+    action: "CREATE",
+    errorMessage: null,
+  },
+});
+
+await prisma.orderSync.update({
+  where: {
+    id: orderSyncId,
+  },
+  data: {
+    netsuiteOrderId,
     status: "SUCCESS",
     action: "CREATE",
     errorMessage: null,

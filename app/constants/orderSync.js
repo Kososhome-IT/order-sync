@@ -18,6 +18,7 @@ export const EVENT_TYPE = {
 export const STATUS = {
   RECEIVED: "RECEIVED",
   PENDING: "PENDING",
+  PROCESSING:"PROCESSING",
   SUCCESS: "SUCCESS",
   FAILED: "FAILED",
 };
