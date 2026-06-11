@@ -1,6 +1,7 @@
 import { json } from "../utils/jsonResponse";
 import prisma from "../db.server";
 import { verifyShopifyHmac } from "../utils/verifyShopifyHmac";
+import {processShopifyOrderUpdate} from "../services/netsuite/orderUpdate.service"
 import {
   SYSTEM,
   DIRECTION,
@@ -24,13 +25,16 @@ export async function action({ request }) {
   if (!orderSync) {
     return json({ ignored: true });
   }
+if (orderSync.originSystem === SYSTEM.NETSUITE) {
+  return json({ ignored: true });
+}
 
+  
   // 2️⃣ Update state
   await prisma.orderSync.update({
     where: { id: orderSync.id },
     data: {
       lastSyncedFrom: SYSTEM.SHOPIFY,
-      status: STATUS.PENDING,
     },
   });
 
@@ -45,6 +49,6 @@ export async function action({ request }) {
       rawPayload: payload,
     },
   });
-
+await processShopifyOrderUpdate(orderSync.id)
   return json({ ok: true });
 }

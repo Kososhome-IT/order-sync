@@ -16,11 +16,23 @@ export async function action({ request }) {
 
   const payload = JSON.parse(body);
   const shopifyOrderId = String(payload.id);
+  console.log(
+  "WEBHOOK RECEIVED",
+  shopifyOrderId,
+  new Date().toISOString()
+);
 
   // 1. Create or find OrderSync (STATE)
   let orderSync = await prisma.orderSync.findUnique({
     where: { shopifyOrderId },
   });
+  // duplicate check and resolved
+  if (orderSync && (orderSync.status === "PROCESSING" || orderSync.status === "SUCCESS")) {
+  
+    console.log(`Skipping duplicate webhook ${shopifyOrderId}`);
+
+  return json({ ok: true });
+}
 
   if (!orderSync) {
     orderSync = await prisma.orderSync.create({
@@ -28,12 +40,11 @@ export async function action({ request }) {
         shopifyOrderId,
         originSystem: SYSTEM.SHOPIFY,
         lastSyncedFrom: SYSTEM.SHOPIFY,
-        status: STATUS.PENDING,
+        status: STATUS.PROCESSING,
       },
     });
-  }
 
-  // 2. Create log (EVENT)
+      // 2. Create log (EVENT)
   await prisma.orderSyncLog.create({
     data: {
       orderSyncId: orderSync.id,
@@ -44,6 +55,9 @@ export async function action({ request }) {
       rawPayload: payload,
     },
   });
+  }
+
+
 // 3.  Queue NetSuite sync job
 //   await orderQueue.add(
 //   "shopify-order-create",
@@ -52,6 +66,20 @@ export async function action({ request }) {
 //     shopifyOrderId,
 //   }
 // );
+
+
+
+
+console.log(
+  "BEFORE NETSUITE CREATE",
+  orderSync.id,
+  new Date().toISOString()
+);
+console.log(
+  "CALLING processShopifyOrder",
+  orderSync.id,
+  new Date().toISOString()
+);
 
 await processShopifyOrder(
   orderSync.id

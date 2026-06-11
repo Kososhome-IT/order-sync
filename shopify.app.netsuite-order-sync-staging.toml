@@ -1,0 +1,21 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "1d89a1fdd913a76b3b955cfdd08df283"
+application_url = "https://example.com"
+embedded = true
+name = "netsuite-order-sync-staging"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_all_orders,read_assigned_fulfillment_orders,write_assigned_fulfillment_orders,read_customers,write_draft_orders,read_draft_orders,write_order_edits,read_order_edits,read_orders,write_orders,read_third_party_fulfillment_orders,write_third_party_fulfillment_orders,customer_read_draft_orders,customer_read_orders,customer_write_orders"
+optional_scopes = [ ]
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = [ ]
+
+[webhooks]
+api_version = "2026-04"
+
+[build]
+automatically_update_urls_on_dev = true

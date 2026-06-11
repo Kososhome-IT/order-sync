@@ -63,6 +63,7 @@ export default function OrderSyncLogDashboard() {
               <s-table-header>Event</s-table-header>
               <s-table-header>Status</s-table-header>
               <s-table-header>Message</s-table-header>
+              <s-table-header>Details</s-table-header>
               <s-table-header>Created At</s-table-header>
             </s-table-header-row>
 
@@ -108,6 +109,23 @@ export default function OrderSyncLogDashboard() {
                       {log.message || "—"}
                     </s-text>
                   </s-table-cell>
+                  <s-table-cell>
+  <details>
+    <summary>View</summary>
+
+    <pre>
+      {JSON.stringify(
+        {
+          requestPayload: log.requestPayload,
+          responsePayload: log.responsePayload,
+          errorPayload: log.errorPayload,
+        },
+        null,
+        2
+      )}
+    </pre>
+  </details>
+</s-table-cell>
 
                   <s-table-cell>
                     <s-text tone="subdued" variant="body-sm">
