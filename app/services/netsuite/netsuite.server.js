@@ -92,15 +92,36 @@ class NetSuiteClient {
     return this.request(`/salesOrder/${orderId}`, "GET");
   }
 
+  async getOrderItems(orderId) {
+  return this.request(
+    `/salesOrder/${orderId}/item`,
+    "GET"
+  );
+}
+
+async getOrderItem(orderId, lineId) {
+  return this.request(
+    `/salesOrder/${orderId}/item/${lineId}`,
+    "GET"
+  );
+}
   // 2. Create Order
   async createOrder(orderData) {
     return this.request("/salesOrder", "POST", orderData);
   }
 
   // 3. Update Order
-  async updateOrder(orderId, orderData) {
-    return this.request(`/salesOrder/${orderId}`, "PATCH", orderData);
-  }
+async updateOrder(orderId, orderData) {
+  return this.request(
+    `/salesOrder/${orderId}?replace=item`,
+    "PATCH",
+    orderData
+  );
+}
+// helper for other uses
+async getByUrl(url) {
+  return this.requestAbsolute(url, "GET");
+}
 }
 
 // client exported

@@ -49,17 +49,33 @@ model OrderSync {
 }
 
 model OrderSyncLog {
-  id              Int      @id @default(autoincrement())
+  id              Int       @id @default(autoincrement())
   orderSyncId     Int
   orderSync       OrderSync @relation(fields: [orderSyncId], references: [id])
-  sourceSystem    String   // SHOPIFY | NETSUITE
-  direction       String   // SHOPIFY_TO_NETSUITE | NETSUITE_TO_SHOPIFY
-  eventType       String   // CREATE | UPDATE | CANCEL | FULFILL | RETRY
-  status          String   // RECEIVED | SUCCESS | FAILED
+  sourceSystem    String
+  direction       String
+  eventType       String
+  status          String
   message         String?
   rawPayload      Json?
+  requestPayload  Json?
+  responsePayload Json?
   errorPayload    Json?
   createdAt       DateTime @default(now())
+}
+
+model CompanyMapping {
+  id                       String   @id @default(cuid())
+
+  netsuiteCompanyId        String   @unique
+
+  shopifyCompanyId         String
+  shopifyCompanyName       String
+
+  shopifyCompanyLocationId String
+
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
 }
 
 

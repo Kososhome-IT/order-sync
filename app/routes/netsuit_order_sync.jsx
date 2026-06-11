@@ -1,111 +1,81 @@
 import prisma from "../db.server";
+import { jsonResponse } from "../utils/jsonResponse";
 import { sessionStorage } from "../shopify.server";
 import { createAdminApiClient } from "@shopify/admin-api-client";
-import {
-  SYSTEM,
-  DIRECTION,
-  EVENT_TYPE,
-  STATUS,
-} from "../constants/orderSync";
+import { getVariantIdBySKU } from "../services/shopify/product.service"
+import { findCompanyByNetSuiteId } from "../services/shopify/company.service"
+import { findCustomerByEmail } from "../services/shopify/customer.service"
+import { SYSTEM, DIRECTION, EVENT_TYPE, STATUS, } from "../constants/orderSync";
 
-/* -------------------------
-   JSON response helper
--------------------------- */
-function jsonResponse(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
-
-// helper to get varient iod from sku
-async function getVariantIdBySKU(admin, sku) {
-  const query = `
-    query getVariantBySku($query: String!) {
-      productVariants(first: 1, query: $query) {
-        edges {
-          node {
-            id
-            sku
-          }
-        }
-      }
-    }
-  `;
-
-  const res = await admin.request(query, {
-    variables: {
-      query: `sku:${sku}`,
-    },
-  });
-
-  const edges = res?.data?.productVariants?.edges;
-
-  if (!edges || edges.length === 0) {
-    throw new Error(`Variant not found for SKU: ${sku}`);
-  }
-
-  return edges[0].node.id;
-}
-
-//  end 
 
 
 export async function action({ request }) {
   const SHOP_DOMAIN = process.env.SHOP;
-  const API_VERSION = "2025-04";
-
+  const API_VERSION = "2025-07";
+  let payload;
+  const lineItems = [];
+  const validationErrors = [];
+  
+  console.log("SHOP_DOMAIN:", SHOP_DOMAIN);
   /* 1 Allow POST only */
   if (request.method !== "POST") {
     return jsonResponse({ error: "Method not allowed" }, 405);
   }
 
   /* 2 Parse payload */
-  let payload;
   try {
     payload = await request.json();
   } catch {
     return jsonResponse({ error: "Invalid JSON body" }, 400);
   }
 
-
-
-  console.log("📥 NETSUITE PAYLOAD:", JSON.stringify(payload, null, 2));
-
-  /* 3 Validate payload */
-  if (!payload.orderId) {
-    return jsonResponse({ error: "orderId is required" }, 400);
-  }
-
-  if (!Array.isArray(payload.items) || payload.items.length === 0) {
-    return jsonResponse(
-      { error: "At least one line item is required" },
-      400
-    );
-  }
-
-  /* 4 Idempotency */
-  const existing = await prisma.orderSync.findUnique({
+const session = await sessionStorage.loadSession(`offline_${SHOP_DOMAIN}`);
+ const existing = await prisma.orderSync.findUnique({
     where: { netsuiteOrderId: payload.orderId },
   });
+  // console.log("📥 NETSUITE PAYLOAD:", JSON.stringify(payload, null, 2));
 
-  if (existing) {
-    return jsonResponse({ message: "Order already processed" }, 200);
-  }
 
-  /* 5 Load OFFLINE session */
-  const session = await sessionStorage.loadSession(
-    `offline_${SHOP_DOMAIN}`
+// validations
+
+if (!payload.orderId) {
+  validationErrors.push("orderId is required");
+}
+
+if (!payload.customer?.email) {
+  validationErrors.push("customer.email is required");
+}
+
+if (!payload.companyLocationId) {
+  validationErrors.push("companyLocationId is required");
+}
+
+if (!Array.isArray(payload.items) || payload.items.length === 0) {
+  validationErrors.push(
+    "At least one line item is required"
   );
-
-  if (!session) {
-    return jsonResponse(
-      { error: "Offline Shopify session not found" },
-      401
-    );
+}
+  if (existing) {
+    validationErrors.push("Order already processed" );
   }
 
-  console.log("🔐 OFFLINE SESSION:", {
+   if (!session) {
+    validationErrors.push("Offline Shopify session not found" );
+  } 
+if (validationErrors.length) {
+  return jsonResponse(
+    {
+      error: "Validation failed",
+      details: validationErrors,
+    },
+    400
+  );
+}
+
+
+
+  
+ console.log("🔐 OFFLINE SESSION:", {
     shop: session.shop,
     scope: session.scope,
     isOnline: session.isOnline,
@@ -117,31 +87,47 @@ export async function action({ request }) {
     apiVersion: API_VERSION,
     accessToken: session.accessToken,
   });
-//  preaparing lineitems from payload
- const lineItems = [];
+  //  preaparing lineitems from payload
+  
+const customer = await findCustomerByEmail(admin,payload.customer.email);
+// const company = await findCompanyByNetSuiteId(admin,payload.companyLocationId);
+// const companyLocationId = company.locations.nodes[0]?.id;
+const company =
+  await findCompanyByNetSuiteId(
+    admin,
+    payload.companyLocationId
+  );
 
-for (const item of payload.items) {
-  if (!item.sku) {
-    return jsonResponse(
-      { error: "SKU is required for all line items" },
-      400
-    );
+const companyLocationId =
+  company.companyLocationId;
+
+
+console.log("customer",customer)
+console.log("company",company)
+console.log("companyLocationId",companyLocationId)
+
+  for (const item of payload.items) {
+    if (!item.sku) {
+      return jsonResponse(
+        { error: "SKU is required for all line items" },
+        400
+      );
+    }
+
+    try {
+      const variantId = await getVariantIdBySKU(admin, item.sku);
+
+      lineItems.push({
+        variantId,
+        quantity: item.quantity,
+      });
+    } catch (error) {
+      return jsonResponse(
+        { error: error.message },
+        400
+      );
+    }
   }
-
-  try {
-    const variantId = await getVariantIdBySKU(admin, item.sku);
-
-    lineItems.push({
-      variantId,
-      quantity: item.quantity,
-    });
-  } catch (error) {
-    return jsonResponse(
-      { error: error.message },
-      400
-    );
-  }
-}
   /* 7 CREATE ORDER */
   const orderMutation = `
     mutation orderCreate($order: OrderCreateOrderInput!) {
@@ -166,9 +152,10 @@ for (const item of payload.items) {
   const orderRes = await admin.request(orderMutation, {
     variables: {
       order: {
-        customerId: payload.customer.id,
-        companyLocationId:payload.companyLocationId,
+        customerId: customer.id,
+        companyLocationId,
         sourceName: "NetSuite",
+        name: payload.orderId,
         financialStatus:
           payload.paymentStatus === "PAID"
             ? "PAID"
