@@ -64,5 +64,19 @@ model OrderSyncLog {
   createdAt       DateTime @default(now())
 }
 
+model CompanyMapping {
+  id                       String   @id @default(cuid())
+
+  netsuiteCompanyId        String   @unique
+
+  shopifyCompanyId         String
+  shopifyCompanyName       String
+
+  shopifyCompanyLocationId String
+
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+}
+
 
 
