@@ -190,6 +190,7 @@ console.log("companyLocationId",companyLocationId)
   await prisma.orderSync.create({
     data: {
       netsuiteOrderId: payload.orderId,
+      shopifyOrderId:orderCreate.order.id,
       netsuiteCompanyId: payload.companyLocationId,
       originSystem: SYSTEM.NETSUITE,
       lastSyncedFrom: SYSTEM.NETSUITE,
@@ -201,6 +202,6 @@ console.log("companyLocationId",companyLocationId)
 
   return jsonResponse({
     success: true,
-    // shopifyOrderId: orderCreate.order.id,
+    shopifyOrderId: orderCreate.order.id, 
   });
 }

@@ -1,11 +1,27 @@
 import prisma from "../../db.server";
 import { netsuite } from "./netsuite.server";
 import { findCustomerByEmail, } from "./customer.service";
+import { findCompanyByShopifyId } from "./company.service";
 import { findItemBySku, } from "./inventory.service";
+import { sessionStorage } from "../../shopify.server";
+import { createAdminApiClient } from "@shopify/admin-api-client";
 
 
 export async function processShopifyOrder(orderSyncId) {
     let payload = null;
+    const SHOP_DOMAIN = process.env.SHOP;
+  const API_VERSION = "2025-07";
+  const session = await sessionStorage.loadSession(`offline_${SHOP_DOMAIN}`);
+  if (!session) {
+  throw new Error(
+    "Offline Shopify session not found"
+  );
+}
+  const admin = createAdminApiClient({
+    storeDomain: SHOP_DOMAIN,
+    apiVersion: API_VERSION,
+    accessToken: session.accessToken,
+  });
 
   try {
   const sync = await prisma.orderSync.findUnique({
@@ -80,22 +96,31 @@ export async function processShopifyOrder(orderSyncId) {
   // Temporary test call
 
 
-  const customerEmail =
-    shopifyOrder.customer?.email;
+  const customerID = shopifyOrder.customer?.email;
 
-  const customer = await findCustomerByEmail(customerEmail);
+  const company = await findCompanyByShopifyId(
+    admin,
+    shopifyOrder.company.id
+  );
 
-  if (!customer) {
-    throw new Error(
-      `Customer not found in NetSuite: ${customerEmail}`
-    );
-  }
+console.log(
+  "COMPANY MAPPING",
+  company
+);  
+
+  // const customer = await findCustomerByEmail(customerEmail);
+
+  // if (!customer) {
+  //   throw new Error(
+  //     // `Customer not found in NetSuite: ${customerEmail}`
+  //   );
+  // }
 
   const otherRefNumDummy = shopifyOrder.name?.replace("#", "")
 
   payload = {
     customForm: { id: NETSUITE_DEFAULTS.customFormId, },
-    entity: { id: customer.id },
+    entity: { id: company.netsuiteCompanyId },
     subsidiary: { id:  NETSUITE_DEFAULTS.subsidiaryId, },
     otherRefNum: shopifyOrder.po_number,
     custbody_ch_om_web_order_number:otherRefNumDummy,
@@ -114,6 +139,12 @@ export async function processShopifyOrder(orderSyncId) {
   console.log("Creating NetSuite Sales Order",JSON.stringify(payload, null, 2));
   const result = await netsuite.createOrder(payload);
 const netsuiteOrderId = result.location?.split("/").pop();
+
+if (!netsuiteOrderId) {
+  throw new Error(
+    "Failed to extract NetSuite Order ID"
+  );
+}
   console.log("Sales Order Result:", result);
 
   console.log("NetSuite Response:", result);
@@ -155,6 +186,7 @@ await prisma.orderSync.update({
     errorMessage: null,
   },
 });
+return netsuiteOrderId;
   } catch (error) {
         await prisma.orderSyncLog.create({
       data: {

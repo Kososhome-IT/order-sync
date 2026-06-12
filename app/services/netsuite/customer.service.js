@@ -1,19 +1,18 @@
-import { netsuite } from "./netsuite.server";
-
-export async function findCustomerByEmail(email) {
-  const result = await netsuite.request(
-    `/customer?q=${encodeURIComponent(
-      `email IS "${email}"`
-    )}`,
-    "GET"
-  );
+export async function findCustomerById(
+  customerId
+) {
+  const result =
+    await netsuite.request(
+      `/customer/${customerId}`,
+      "GET"
+    );
 
   if (
     !result.success ||
-    !result.data?.items?.length
+    !result.data
   ) {
     return null;
   }
 
-  return result.data.items[0];
+  return result.data;
 }
