@@ -78,5 +78,21 @@ model CompanyMapping {
   updatedAt                DateTime @updatedAt
 }
 
+model PaymentSync {
+  id                  String   @id @default(cuid())
 
+  netsuiteOrderId     String
+  shopifyOrderId      String
+
+  authorizationId     String
+
+  paymentReference    String?
+
+  capturedAmount      Float
+
+  status              String
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
 
