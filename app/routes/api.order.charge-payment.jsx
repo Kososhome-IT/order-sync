@@ -2,7 +2,8 @@ import prisma from "../db.server";
 import { sessionStorage } from "../shopify.server";
 import { jsonResponse } from "../utils/jsonResponse";
 import { createAdminApiClient } from "@shopify/admin-api-client";
-import { getAuthorizationTransaction,validateCaptureAmount} from "../services/shopify/payment.service";
+import { getAuthorizationTransaction,} from "../services/shopify/payment.service";
+// validateCaptureAmount
 export async function action({ request }) {
     let payload;
     const SHOP_DOMAIN = process.env.SHOP;
@@ -76,10 +77,10 @@ const authorization =
     orderSync.shopifyOrderId
   );
 
-validateCaptureAmount(
-  authorization,
-  payload.captureAmount
-);
+// validateCaptureAmount(
+//   authorization,
+//   payload.captureAmount
+// );
 console.log(
   "AUTHORIZATION",
   JSON.stringify(
