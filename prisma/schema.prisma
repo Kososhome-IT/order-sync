@@ -43,6 +43,7 @@ model OrderSync {
   status             String   // PENDING | SUCCESS | FAILED | PARTIAL
   action             String   @default("CREATE")
   errorMessage       String?
+  webhookPayload    Json?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   logs               OrderSyncLog[]
