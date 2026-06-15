@@ -175,7 +175,7 @@ console.log("companyLocationId",companyLocationId)
     {
       namespace: "custom",
       key: "order_source",
-      value: payload.orderSource
+      value: 'NETSUITE'
     }
   ]
       },
