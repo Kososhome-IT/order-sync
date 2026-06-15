@@ -25,7 +25,20 @@ export async function action({ request }) {
       shopifyOrderId,
       new Date().toISOString()
     );
+const orderSource =
+  await getOrderSource(
+    admin,
+    payload.id
+  );
 
+if (orderSource === "NETSUITE") {
+  console.log(
+    "Skipping NetSuite order",
+    payload.id
+  );
+
+  return json({ ok: true });
+}
     // Find existing sync record
     let orderSync =
       await prisma.orderSync.findUnique({

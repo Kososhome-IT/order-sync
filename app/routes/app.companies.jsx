@@ -1,7 +1,8 @@
 import prisma from "../db.server";
 import { json } from "../utils/jsonResponse";
 import { useLoaderData } from "react-router";
-
+import { useFetcher }
+  from "react-router";
 export async function loader() {
   const companies =
     await prisma.companyMapping.findMany({
@@ -13,54 +14,236 @@ export async function loader() {
   return json({ companies });
 }
 
+export async function action() {
+  const {
+    sessionStorage,
+  } = await import(
+    "../shopify.server"
+  );
 
+  const {
+    createAdminApiClient,
+  } = await import(
+    "@shopify/admin-api-client"
+  );
+
+  const {
+    syncCompanies,
+  } = await import(
+    "../services/shopify/companySync.server"
+  );
+
+  const SHOP_DOMAIN =
+    process.env.SHOP;
+
+  const session =
+    await sessionStorage.loadSession(
+      `offline_${SHOP_DOMAIN}`
+    );
+
+  const admin =
+    createAdminApiClient({
+      storeDomain:
+        SHOP_DOMAIN,
+
+      apiVersion:
+        "2025-07",
+
+      accessToken:
+        session.accessToken,
+    });
+
+  const result =
+    await syncCompanies(admin);
+
+  return json(result);
+}
 
 export default function CompaniesPage() {
   const { companies } = useLoaderData();
-
-  return (
-    <div style={{ padding: "20px" }}>
-      <h1>Company Mappings</h1>
-
-      <table
-        border="1"
-        cellPadding="10"
-        style={{
-          borderCollapse: "collapse",
-          width: "100%",
-        }}
+const fetcher = useFetcher();
+return (
+  <s-page
+    title="Company Mappings"
+    inlineSize="large"
+  >
+    <s-section>
+      <s-grid
+        gridTemplateColumns="1fr auto auto"
+        gap="small"
+        placeContent="space-between center"
       >
-        <thead>
-          <tr>
-            <th>Shopify Company ID</th>
-            <th>Company Name</th>
-            <th>Shopify Location ID</th>
-            <th>NetSuite Company ID</th>
-          </tr>
-        </thead>
+        <s-grid-item>
+          <s-heading variant="heading-md">
+            Shopify ↔ NetSuite Company Mappings
+          </s-heading>
+        </s-grid-item>
 
-        <tbody>
-          {companies.map((company) => (
-            <tr key={company.id}>
-              <td>
-                {company.shopifyCompanyId}
-              </td>
+      <div
+  style={{
+    padding: "0.355rem 0.75rem",
+    borderRadius: "8px",
+    background: "#e8f2ff",
+    fontWeight: "600",
+    fontSize: "0.7rem",
+    lineHeight:"normal",
+    border: "1px solid #b8d3ff",
+  }}
+>
+  {companies.length} Companies
+</div>
 
-              <td>
-                {company.shopifyCompanyName}
-              </td>
 
-              <td>
-                {company.shopifyCompanyLocationId}
-              </td>
+        <s-grid-item>
+          <fetcher.Form method="post">
+            <s-button
+              type="submit"
+              variant="primary"
+              disabled={
+                fetcher.state !== "idle"
+              }
+            >
+              {fetcher.state !== "idle"
+                ? "Syncing..."
+                : "Sync Companies"}
+            </s-button>
+          </fetcher.Form>
+        </s-grid-item>
+      </s-grid>
 
-              <td>
-                {company.netsuiteCompanyId}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+      <s-paragraph
+        tone="info"
+        padding="base"
+      >
+        Cached company mappings used during
+        Shopify ↔ NetSuite order synchronization.
+      </s-paragraph>
+
+      {fetcher.data && (
+        <s-banner tone="success">
+          Sync completed successfully.
+
+          {" "}
+          Synced:
+          {" "}
+          {fetcher.data.synced}
+
+          {" | "}
+
+          Skipped:
+          {" "}
+          {fetcher.data.skipped}
+        </s-banner>
+      )}
+
+      <s-divider
+        style={{
+          margin: "16px 0",
+        }}
+      />
+
+      {companies.length === 0 ? (
+        <s-text tone="subdued">
+          No company mappings found.
+        </s-text>
+      ) : (
+        <s-table>
+          <s-table-header-row>
+            <s-table-header>
+              Company Name
+            </s-table-header>
+
+            <s-table-header>
+              Shopify Company
+            </s-table-header>
+
+            <s-table-header>
+              NetSuite Company
+            </s-table-header>
+
+            <s-table-header>
+              Location
+            </s-table-header>
+
+            <s-table-header>
+              Details
+            </s-table-header>
+
+            <s-table-header>
+              Created
+            </s-table-header>
+          </s-table-header-row>
+
+          <s-table-body>
+            {companies.map(
+              (company) => (
+                <s-table-row
+                  key={company.id}
+                >
+                  <s-table-cell>
+                    <s-text font-weight="medium">
+                      {
+                        company.shopifyCompanyName
+                      }
+                    </s-text>
+                  </s-table-cell>
+
+                  <s-table-cell>
+                    <s-badge tone="info">
+                      {
+                        company.shopifyCompanyId
+                      }
+                    </s-badge>
+                  </s-table-cell>
+
+                  <s-table-cell>
+                    <s-badge tone="success">
+                      {
+                        company.netsuiteCompanyId
+                      }
+                    </s-badge>
+                  </s-table-cell>
+
+                  <s-table-cell>
+                    <s-text tone="subdued">
+                      {company.shopifyCompanyLocationId ||
+                        "—"}
+                    </s-text>
+                  </s-table-cell>
+
+                  <s-table-cell>
+                    <details>
+                      <summary>
+                        View
+                      </summary>
+
+                      <pre>
+                        {JSON.stringify(
+                          company,
+                          null,
+                          2
+                        )}
+                      </pre>
+                    </details>
+                  </s-table-cell>
+
+                  <s-table-cell>
+                    <s-text
+                      tone="subdued"
+                      variant="body-sm"
+                    >
+                      {new Date(
+                        company.createdAt
+                      ).toLocaleString()}
+                    </s-text>
+                  </s-table-cell>
+                </s-table-row>
+              )
+            )}
+          </s-table-body>
+        </s-table>
+      )}
+    </s-section>
+  </s-page>
+);
 }

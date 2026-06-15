@@ -1,3 +1,5 @@
+
+import { netsuite } from "./netsuite.server";
 export async function findCustomerById(
   customerId
 ) {
@@ -7,10 +9,7 @@ export async function findCustomerById(
       "GET"
     );
 
-  if (
-    !result.success ||
-    !result.data
-  ) {
+  if (!result.success) {
     return null;
   }
 

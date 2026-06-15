@@ -108,6 +108,20 @@ console.log(
   company
 );  
 
+const shippingAmount =
+  Number(
+    shopifyOrder
+      ?.total_shipping_price_set
+      ?.shop_money
+      ?.amount || 0
+  );
+
+// const shippingMethod =
+//   shopifyOrder
+//     ?.shipping_lines?.[0]
+//     ?.title || null;
+const shippingMethod = {id : "26506"}
+
   // const customer = await findCustomerByEmail(customerEmail);
 
   // if (!customer) {
@@ -122,10 +136,12 @@ console.log(
     customForm: { id: NETSUITE_DEFAULTS.customFormId, },
     entity: { id: company.netsuiteCompanyId },
     subsidiary: { id:  NETSUITE_DEFAULTS.subsidiaryId, },
-    otherRefNum: shopifyOrder.po_number,
+    otherRefNum: shopifyOrder.po_number || shopifyOrder.name, 
     custbody_ch_om_web_order_number:otherRefNumDummy,
     custbody_wmsse_ordertype:{id:NETSUITE_DEFAULTS.custbody_wmsse_ordertype},
     custbody_ch_so_acc_spec: { id: "562637" },
+    shippingcost:shippingAmount,
+    shipmethod:shippingMethod,
     custbody_ch_om_ordersource: { id: NETSUITE_DEFAULTS.orderSourceId },
     custbody_ch_ord_attribute: {
       items: [{ id: "54" }],
@@ -138,6 +154,23 @@ console.log(
 
   console.log("Creating NetSuite Sales Order",JSON.stringify(payload, null, 2));
   const result = await netsuite.createOrder(payload);
+  console.log(
+  "ORDER CREATED RESPONSE",
+  JSON.stringify(result, null, 2)
+);
+  console.log(
+  "NETSUITE CREATE RESPONSE",
+  JSON.stringify(result, null, 2)
+);
+if (!result.success) {
+  throw new Error(
+    result.data?.["o:errorDetails"]
+      ?.map(e => e.detail)
+      ?.join(", ") ||
+    "NetSuite order creation failed"
+  );
+}
+
 const netsuiteOrderId = result.location?.split("/").pop();
 
 if (!netsuiteOrderId) {

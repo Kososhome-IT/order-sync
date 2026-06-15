@@ -1,7 +1,7 @@
 import { useLoaderData } from "react-router";
 import prisma from "../db.server";
 import { authenticate } from "../shopify.server";
-
+import { useState } from "react";
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -22,7 +22,7 @@ export async function loader({ request }) {
 
 export default function OrderSyncDashboard() {
   const orders = useLoaderData();
-
+const [selectedPayload, setSelectedPayload] = useState(null);
   return (
     <s-page title="Order Sync Dashboard" inlineSize="large">
       <s-section>
@@ -59,6 +59,7 @@ export default function OrderSyncDashboard() {
               <s-table-header>NetSuite Order ID</s-table-header>
               <s-table-header>Shopify Order ID</s-table-header>
               <s-table-header>Action</s-table-header>
+              <s-table-header>Status</s-table-header>
               <s-table-header>Status</s-table-header>
               <s-table-header>Updated At</s-table-header>
             </s-table-header-row>
@@ -104,20 +105,70 @@ export default function OrderSyncDashboard() {
                     <s-badge tone={statusTone(entry.status)}>
                       {entry.status}
                     </s-badge>
-                  </s-table-cell>
-
-                  <s-table-cell>
+                 </s-table-cell>
+                   <s-table-cell>
+  <s-button
+    onClick={() =>
+      setSelectedPayload(
+        entry.webhookPayload
+      )
+    }
+  >
+    View Payload
+  </s-button>
+</s-table-cell>
+                   <s-table-cell>
                     <s-text tone="subdued" variant="body-sm">
                       {new Date(entry.updatedAt).toLocaleString()}
                     </s-text>
                   </s-table-cell>
+                 
                 </s-table-row>
               ))}
             </s-table-body>
           </s-table>
         )}
-      </s-section>
-    </s-page>
+        
+    </s-section>
+
+{selectedPayload && (
+  <div
+    style={{
+      position: "fixed",
+      top: "5%",
+      left: "5%",
+      width: "90%",
+      height: "90%",
+      background: "white",
+      border: "1px solid #ddd",
+      zIndex: 99999,
+      overflow: "auto",
+      padding: "20px",
+    }}
+  >
+    <h2>
+      Shopify Webhook Payload
+    </h2>
+
+    <pre>
+      {JSON.stringify(
+        selectedPayload,
+        null,
+        2
+      )}
+    </pre>
+
+    <button
+      onClick={() =>
+        setSelectedPayload(null)
+      }
+    >
+      Close
+    </button>
+  </div>
+)}
+
+</s-page>
   );
 }
 
