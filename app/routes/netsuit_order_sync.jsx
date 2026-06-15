@@ -29,6 +29,16 @@ export async function action({ request }) {
     return jsonResponse({ error: "Invalid JSON body" }, 400);
   }
 
+ if(payload.orderSource == 8){
+  console.log(`website order it will be already exist on website ${payload.orderId}`)
+  return
+ } 
+
+ 
+ if(payload.orderSource == 1){
+  console.log(`EDI orders we are not syncing to website : ${payload.orderId}`)
+  return
+ } 
 const session = await sessionStorage.loadSession(`offline_${SHOP_DOMAIN}`);
  const existing = await prisma.orderSync.findUnique({
     where: { netsuiteOrderId: payload.orderId },

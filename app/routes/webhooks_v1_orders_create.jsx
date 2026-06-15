@@ -30,8 +30,8 @@ const orderSource =
     admin,
     payload.id
   );
-
-if (orderSource === "NETSUITE") {
+// orderSource  is value of metafeild which tell this order is website order in netsuite
+if (orderSource == "8") {
   console.log(
     "Skipping NetSuite order",
     payload.id
