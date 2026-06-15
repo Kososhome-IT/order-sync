@@ -28,14 +28,14 @@ export async function action({ request }) {
   } catch {
     return jsonResponse({ error: "Invalid JSON body" }, 400);
   }
-
- if(payload.orderSource == 8){
+console.log(`payload.orderSource ${payload.orderSource}`)
+ if(payload.orderSource == 'WEBSITE'){
   console.log(`website order it will be already exist on website ${payload.orderId}`)
   return
  } 
 
  
- if(payload.orderSource == 1){
+ if(payload.orderSource == "EDI"){
   console.log(`EDI orders we are not syncing to website : ${payload.orderId}`)
   return
  } 
