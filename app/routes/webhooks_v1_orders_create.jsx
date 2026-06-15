@@ -1,5 +1,7 @@
 import prisma from "../db.server";
 import { json } from "../utils/jsonResponse";
+import { sessionStorage } from "../shopify.server";
+import { createAdminApiClient } from "@shopify/admin-api-client";
 import { processShopifyOrder } from "../services/netsuite/orderSync.service";
 import { verifyShopifyHmac } from "../utils/verifyShopifyHmac";
 import { getOrderSource } from "../services/shopify/orderSource.service"
@@ -20,7 +22,14 @@ export async function action({ request }) {
     const payload = JSON.parse(body);
 
     const shopifyOrderId = String(payload.id);
-
+  const SHOP_DOMAIN = process.env.SHOP;
+  const API_VERSION = "2025-07";
+  const session = await sessionStorage.loadSession(`offline_${SHOP_DOMAIN}`);
+    const admin = createAdminApiClient({
+    storeDomain: SHOP_DOMAIN,
+    apiVersion: API_VERSION,
+    accessToken: session.accessToken,
+  });
     console.log(
       "WEBHOOK RECEIVED",
       shopifyOrderId,
