@@ -116,9 +116,11 @@ export default function OrderSyncLogDashboard() {
     <pre>
       {JSON.stringify(
         {
+
           requestPayload: log.requestPayload,
           responsePayload: log.responsePayload,
           errorPayload: log.errorPayload,
+          rawPayload: log.rawPayload,
         },
         null,
         2

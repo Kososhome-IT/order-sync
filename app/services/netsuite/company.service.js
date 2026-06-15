@@ -45,7 +45,7 @@ let shopifyCompanyId_GID = `gid://shopify/Company/${shopifyCompanyId}`;
   const response =
     await admin.request(query, {
       variables: {
-       id: shopifyCompanyId,
+       id: shopifyCompanyId_GID,
       },
     });
 
@@ -72,8 +72,7 @@ let shopifyCompanyId_GID = `gid://shopify/Company/${shopifyCompanyId}`;
         );
   }
 
-  const locationId =
-    `gid://shopify/CompanyLocation/${company.locations.nodes[0]?.id}`;
+  const locationId = company.locations.nodes[0]?.id;
 
     console.log("CREATE COMPANY MAPPING", {
   netsuiteCompanyId,
@@ -83,6 +82,21 @@ let shopifyCompanyId_GID = `gid://shopify/Company/${shopifyCompanyId}`;
 });
 
 try {
+    const existingByNs =
+  await prisma.companyMapping.findUnique({
+    where: {
+      netsuiteCompanyId,
+    },
+  });
+
+if (existingByNs) {
+  console.log(
+    "FOUND EXISTING COMPANY BY NETSUITE ID",
+    existingByNs
+  );
+
+  return existingByNs;
+}
   const mapping =
     await prisma.companyMapping.create({
       data: {
