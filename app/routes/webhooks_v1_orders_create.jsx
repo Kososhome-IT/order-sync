@@ -117,7 +117,7 @@ async function processOrderInBackground({
     const orderSource = await getOrderSource(admin, payload.id);
 
     // if orderSource "8" ह (coming from NetSuite ), skip it
-    if (orderSource == "8") {
+    if (orderSource == "NETSUITE") {
       console.log("Skipping NetSuite order", payload.id);
       
       await prisma.orderSync.update({
