@@ -4,7 +4,7 @@ import { sessionStorage } from "../shopify.server";
 import { createAdminApiClient } from "@shopify/admin-api-client";
 import { processShopifyOrder } from "../services/netsuite/orderSync.service";
 import { verifyShopifyHmac } from "../utils/verifyShopifyHmac";
-import { getOrderSource } from "../services/shopify/orderSource.service"
+import { getOrderSource } from "../services/shopify/orderSource.service";
 
 import {
   SYSTEM,
@@ -17,119 +17,73 @@ export async function action({ request }) {
   try {
     const body = await request.text();
 
+    // HMAC Verification
     verifyShopifyHmac(request, body);
 
     const payload = JSON.parse(body);
-
     const shopifyOrderId = String(payload.id);
-  const SHOP_DOMAIN = process.env.SHOP;
-  const API_VERSION = "2025-07";
-  const session = await sessionStorage.loadSession(`offline_${SHOP_DOMAIN}`);
-    const admin = createAdminApiClient({
-    storeDomain: SHOP_DOMAIN,
-    apiVersion: API_VERSION,
-    accessToken: session.accessToken,
-  });
+    const SHOP_DOMAIN = process.env.SHOP;
+    const API_VERSION = "2025-07";
+
     console.log(
       "WEBHOOK RECEIVED",
       shopifyOrderId,
       new Date().toISOString()
     );
-const orderSource =
-  await getOrderSource(
-    admin,
-    payload.id
-  );
-// orderSource  is value of metafeild which tell this order is website order in netsuite
-if (orderSource == "8") {
-  console.log(
-    "Skipping NetSuite order",
-    payload.id
-  );
 
-  return json({ ok: true });
-}
-    // Find existing sync record
-    let orderSync =
-      await prisma.orderSync.findUnique({
-        where: {
-          shopifyOrderId,
-        },
-      });
+    // 1. checking if order already exist
+    let orderSync = await prisma.orderSync.findUnique({
+      where: { shopifyOrderId },
+    });
 
-    // Create if missing
-    if (!orderSync) {
-      orderSync =
-        await prisma.orderSync.create({
-          data: {
-            shopifyOrderId,
-            originSystem: SYSTEM.SHOPIFY,
-            lastSyncedFrom: SYSTEM.SHOPIFY,
-            status: STATUS.PENDING,
-            webhookPayload: payload,
-          },
-        });
+    // 2. sending response to webhook if order already in proccesing
+    if (
+      orderSync &&
+      (orderSync.status === STATUS.PROCESSING || orderSync.status === STATUS.SUCCESS)
+    ) {
+      console.log(`Skipping duplicate webhook ${shopifyOrderId} (Early Catch)`);
+      return json({ ok: true });
     }
 
-    // Log every webhook call
+    // 3. if no order exist create with PENDING state
+    if (!orderSync) {
+      orderSync = await prisma.orderSync.create({
+        data: {
+          shopifyOrderId,
+          originSystem: SYSTEM.SHOPIFY,
+          lastSyncedFrom: SYSTEM.SHOPIFY,
+          status: STATUS.PENDING,
+          webhookPayload: payload,
+        },
+      });
+    }
+
+    // 4. webhook call log
     await prisma.orderSyncLog.create({
       data: {
         orderSyncId: orderSync.id,
         sourceSystem: SYSTEM.SHOPIFY,
-        direction:
-          DIRECTION.SHOPIFY_TO_NETSUITE,
+        direction: DIRECTION.SHOPIFY_TO_NETSUITE,
         eventType: EVENT_TYPE.CREATE,
         status: STATUS.RECEIVED,
         rawPayload: payload,
       },
     });
 
-    // Skip duplicates
-    if (
-      orderSync.status === STATUS.PROCESSING ||
-      orderSync.status === STATUS.SUCCESS
-    ) {
-      console.log(
-        `Skipping duplicate webhook ${shopifyOrderId}`
-      );
-
-      return json({ ok: true });
-    }
-
-    // Mark processing
-    await prisma.orderSync.update({
-      where: {
-        id: orderSync.id,
-      },
-      data: {
-        status: STATUS.PROCESSING,
-      },
+    // 5.  calling order porocess
+    processOrderInBackground({
+      orderSyncId: orderSync.id,
+      shopifyOrderId,
+      payload,
+      SHOP_DOMAIN,
+      API_VERSION,
     });
 
-    // Process Shopify -> NetSuite
-    const netsuiteOrderId =
-      await processShopifyOrder(
-        orderSync.id
-      );
-
-    // Success
-    await prisma.orderSync.update({
-      where: {
-        id: orderSync.id,
-      },
-      data: {
-        netsuiteOrderId,
-        status: STATUS.SUCCESS,
-      },
-    });
-
+    // sent Shopify  200 OK to webhook
     return json({ ok: true });
-  } catch (error) {
-    console.error(
-      "ORDER WEBHOOK ERROR",
-      error
-    );
 
+  } catch (error) {
+    console.error("ORDER WEBHOOK ERROR", error);
     return json(
       {
         ok: false,
@@ -137,5 +91,74 @@ if (orderSource == "8") {
       },
       500
     );
+  }
+}
+
+/**
+ * order processing helper function
+ */
+async function processOrderInBackground({
+  orderSyncId,
+  shopifyOrderId,
+  payload,
+  SHOP_DOMAIN,
+  API_VERSION,
+}) {
+  try {
+    // adin client creation
+    const session = await sessionStorage.loadSession(`offline_${SHOP_DOMAIN}`);
+    const admin = createAdminApiClient({
+      storeDomain: SHOP_DOMAIN,
+      apiVersion: API_VERSION,
+      accessToken: session.accessToken,
+    });
+
+    // Metafield value (Order Source) check
+    const orderSource = await getOrderSource(admin, payload.id);
+
+    // if orderSource "8" ह (coming from NetSuite ), skip it
+    if (orderSource == "8") {
+      console.log("Skipping NetSuite order", payload.id);
+      
+      await prisma.orderSync.update({
+        where: { id: orderSyncId },
+        data: {
+          status: STATUS.SKIPPED, 
+        },
+      });
+      return;
+    }
+
+    // state PROCESSING to avoide race condtion
+    await prisma.orderSync.update({
+      where: { id: orderSyncId },
+      data: { status: STATUS.PROCESSING },
+    });
+
+    // Shopify -> NetSuite link process
+    const netsuiteOrderId = await processShopifyOrder(orderSyncId);
+
+    // link sucess updation
+    await prisma.orderSync.update({
+      where: { id: orderSyncId },
+      data: {
+        netsuiteOrderId,
+        status: STATUS.SUCCESS,
+      },
+    });
+
+    console.log(`✅ Order ${shopifyOrderId} successfully synced to NetSuite.`);
+
+  } catch (bgError) {
+    console.error(`❌ Background Sync Failed for Order ${shopifyOrderId}:`, bgError);
+    
+    // failiure error saved to DB 
+    await prisma.orderSync.update({
+      where: { id: orderSyncId },
+      data: {
+        status: STATUS.FAILED,
+        errorMessage: bgError.message,
+      },
+    }).catch(() => {});
   }
 }
