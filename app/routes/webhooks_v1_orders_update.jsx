@@ -49,6 +49,26 @@ if (orderSync.originSystem === SYSTEM.NETSUITE) {
       rawPayload: payload,
     },
   });
-await processShopifyOrderUpdate(orderSync.id)
-  return json({ ok: true });
+processShopifyOrderUpdate(
+  orderSync.id
+).catch(async (error) => {
+  console.error(
+    "ORDER UPDATE FAILED",
+    error
+  );
+
+  await prisma.orderSyncLog.create({
+    data: {
+      orderSyncId: orderSync.id,
+      sourceSystem: SYSTEM.SHOPIFY,
+      direction:
+        DIRECTION.SHOPIFY_TO_NETSUITE,
+      eventType: EVENT_TYPE.UPDATE,
+      status: STATUS.FAILED,
+      message: error.message,
+    },
+  });
+});
+
+return json({ ok: true });
 }
