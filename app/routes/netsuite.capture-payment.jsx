@@ -83,7 +83,7 @@ export async function action({ request }) {
               parentTransactionId: orderDetails.authorization.id,
               amount: amount.toString(),
               currency: "USD",
-              finalCapture: false, // Set to false since multiple fulfillments might happen
+              finalCapture: true, // Set to false since multiple fulfillments might happen
             },
           },
         }
