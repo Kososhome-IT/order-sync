@@ -55,12 +55,14 @@ const [selectedPayload, setSelectedPayload] = useState(null);
             <s-table-header-row>
               <s-table-header>Origin</s-table-header>
               <s-table-header>Last Synced From</s-table-header>
+              <s-table-header>Shopify Order Name</s-table-header>
               <s-table-header>NetSuite Company</s-table-header>
               <s-table-header>NetSuite Order ID</s-table-header>
               <s-table-header>Shopify Order ID</s-table-header>
               <s-table-header>Action</s-table-header>
               <s-table-header>Status</s-table-header>
-              <s-table-header>Status</s-table-header>
+              <s-table-header>Payment Status</s-table-header>
+              <s-table-header>Webhook Payload</s-table-header>
               <s-table-header>Updated At</s-table-header>
             </s-table-header-row>
 
@@ -76,6 +78,12 @@ const [selectedPayload, setSelectedPayload] = useState(null);
                   <s-table-cell>
                     <s-badge tone="warning">
                       {entry.lastSyncedFrom}
+                    </s-badge>
+                  </s-table-cell>
+
+                  <s-table-cell>
+                    <s-badge>
+                      {entry.shopifyOrderName || "-"}
                     </s-badge>
                   </s-table-cell>
 
@@ -105,6 +113,25 @@ const [selectedPayload, setSelectedPayload] = useState(null);
                     <s-badge tone={statusTone(entry.status)}>
                       {entry.status}
                     </s-badge>
+                 </s-table-cell>
+                 <s-table-cell>
+                    {entry.paymentCapturedAt ? (
+                    <s-badge tone={statusTone(entry.status)}>
+  
+    Captured At { new Date(
+        entry.paymentCapturedAt
+      ).toLocaleString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      }) }
+  
+                    </s-badge>
+) : (
+  "-"
+)}
                  </s-table-cell>
                    <s-table-cell>
   <s-button

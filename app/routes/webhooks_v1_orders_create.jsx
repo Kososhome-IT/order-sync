@@ -22,6 +22,7 @@ export async function action({ request }) {
 
     const payload = JSON.parse(body);
     const shopifyOrderId = String(payload.id);
+    const shopifyOrderName = String(payload.name);
     const SHOP_DOMAIN = process.env.SHOP;
     const API_VERSION = "2025-07";
 
@@ -50,6 +51,7 @@ export async function action({ request }) {
       orderSync = await prisma.orderSync.create({
         data: {
           shopifyOrderId,
+          shopifyOrderName,
           originSystem: SYSTEM.SHOPIFY,
           lastSyncedFrom: SYSTEM.SHOPIFY,
           status: STATUS.PENDING,
