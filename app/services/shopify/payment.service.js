@@ -1,108 +1,54 @@
-export async function getAuthorizationTransaction(
-  admin,
-  shopifyOrderName
-) {
-  // const query = `
-  //   query GetOrder($id: ID!) {
-  //     order(id: $id) {
-  //       id
-  //       displayFinancialStatus
-
-  //       transactions {
-  //         id
-  //         kind
-  //         status
-
-  //         amountSet {
-  //           shopMoney {
-  //             amount
-  //           }
-  //         }
-  //       }
-  //     }
-  //   }
-  // `;
-
-  // const response = await admin.request(query, {
-  //   variables: {
-  //     id: shopifyOrderId,
-  //   },
-  // });
-
-  // const transactions =
-  //   response?.data?.order?.transactions || [];
-
-  // const authorization =
-  //   transactions.find(
-  //     transaction =>
-  //       transaction.kind === "AUTHORIZATION" &&
-  //       transaction.status === "SUCCESS"
-  //   );
-
-  // if (!authorization) {
-  //   throw new Error(
-  //     "Authorization transaction not found"
-  //   );
-  // }
-
+/**
+ * Fetches Shopify order and checks if there is an active authorization transaction.
+ * @param {object} admin - Shopify Admin API Client
+ * @param {string} shopifyOrderName - The order name (e.g., #1001)
+ */
+export async function getOrderAuthorizationDetails(admin, shopifyOrderName) {
   const orderResponse = await admin.request(
-  `
-  query GetOrderByName($query: String!) {
-    orders(first: 1, query: $query) {
-      nodes {
-        id
-        name
-        displayFinancialStatus
-
-        transactions {
+    `
+    query GetOrderByName($query: String!) {
+      orders(first: 1, query: $query) {
+        nodes {
           id
-          kind
-          status
-          gateway
+          name
+          displayFinancialStatus
+          transactions {
+            id
+            kind
+            status
+            createdAt
+          }
         }
       }
     }
-  }
-  `,
-  {
-    variables: {
-      query: `name:${shopifyOrderName}`,
-    },
-  }
-);
-
-const order =
-  orderResponse?.data?.orders?.nodes?.[0];
-
-if (!order) {
-  throw new Error(
-    `Order not found: ${shopifyOrderName}`
-  );
-}
-
-
-    if (
-      order.displayFinancialStatus ===
-      "PAID"
-    ) {
-      return json({
-        success: true,
-        message:
-          "Order already paid",
-      });
+    `,
+    {
+      variables: {
+        query: `name:${shopifyOrderName}`,
+      },
     }
+  );
 
-    const authorization =
-      order.transactions.find(
-        (t) =>
-          t.kind ===
-            "AUTHORIZATION" &&
-          t.status === "SUCCESS"
-      );
+  const order = orderResponse?.data?.orders?.nodes?.[0];
+
+  if (!order) {
+    throw new Error(`Order not found: ${shopifyOrderName}`);
+  }
+
+  // If the order is already fully paid, throw an error to stop execution
+  if (order.displayFinancialStatus === "PAID") {
+    throw new Error(`Order ${shopifyOrderName} is already fully paid.`);
+  }
+
+  // Look for a successful AUTHORIZATION transaction
+  const authorization = order.transactions.find(
+    (t) => t.kind === "AUTHORIZATION" && t.status === "SUCCESS"
+  );
 
   return {
-  orderId: order.id,
-  orderName: order.name,
-  authorization,
-};
+    orderId: order.id,
+    orderName: order.name,
+    displayFinancialStatus: order.displayFinancialStatus,
+    authorization, // This will be undefined if no authorization exists
+  };
 }
