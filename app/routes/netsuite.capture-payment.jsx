@@ -59,10 +59,6 @@ export async function action({ request }) {
         `
         mutation CaptureOrder($input: OrderCaptureInput!) {
           orderCapture(input: $input) {
-            order {
-              id
-              displayFinancialStatus
-            }
             transaction {
               id
               kind
@@ -105,10 +101,6 @@ export async function action({ request }) {
         `
         mutation OrderCreatePayment($id: ID!, $chargeAmount: MoneyInput!) {
           orderCreatePayment(id: $id, chargeAmount: $chargeAmount) {
-            order {
-              id
-              displayFinancialStatus
-            }
             paymentMapping {
               transaction {
                 id
