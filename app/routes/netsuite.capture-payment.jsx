@@ -64,7 +64,7 @@ export async function action({ request }) {
     }
 
     console.log(`[Payment Capture Started]`);
-    const idempotencyKey = crypto.randomUUID();
+    const idempotencyKey = crypto.randomBytes(16).toString("hex");
 
     const captureResponse = await admin.request(
       `
