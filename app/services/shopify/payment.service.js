@@ -14,6 +14,9 @@ export async function getAuthorizationTransaction(admin, shopifyOrderName) {
           id
           name
           displayFinancialStatus
+          paymentMandate {
+            id
+          }
           transactions {
             id
             kind
@@ -74,6 +77,7 @@ export async function getAuthorizationTransaction(admin, shopifyOrderName) {
     orderId: order.id,
     orderName: order.name,
     displayFinancialStatus: order.displayFinancialStatus,
+    mandateId: order.paymentMandate?.id || null,
     authorization: isExpiredOrMissing ? null : authorization, // Returns null if expired to force Vaulted Card
   };
 }
