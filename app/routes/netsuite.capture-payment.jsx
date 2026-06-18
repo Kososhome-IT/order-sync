@@ -3,12 +3,12 @@ import prisma from "../db.server";
 import crypto from "node:crypto";
 import { sessionStorage } from "../shopify.server";
 import { createAdminApiClient } from "@shopify/admin-api-client";
-import { getAuthorizationTransaction } from "../services/shopify/payment.service";
+import { getOrderTransaction } from "../services/shopify/payment.service";
 
 export async function action({ request }) {
   try {
     const payload = await request.json();
-    const { shopifyOrderName, amount,transactionType ,custbody_wmsse_ordertype} = payload;
+    const { shopifyOrderName, amount, custbody_wmsse_ordertype } = payload;
 
     console.log(`[Hybrid Capture] Incoming request for Order: ${shopifyOrderName}, Amount: ${amount}`);
 
@@ -19,12 +19,21 @@ export async function action({ request }) {
       );
     }
 
+    // FIX 1: Early Return if order type doesn't match to prevent undefined execution/crashes
+    if (custbody_wmsse_ordertype !== "Shopify Ready To Charge") {
+      console.warn(`[Payment Capture] Ignored: Order type is [${custbody_wmsse_ordertype}].`);
+      return json(
+        { success: false, message: "Order type does not match criteria for automated charging." }, 
+        { status: 400 }
+      );
+    }
+
     const orderSync = await prisma.orderSync.findFirst({
       where: { shopifyOrderName },
     });
 
     if (!orderSync) {
-      console.error(`[Hybrid Capture] DB Error: OrderSync record not found for ${shopifyOrderName}`);
+      console.error(`[Payment Capture] DB Error: OrderSync record not found for ${shopifyOrderName}`);
       return json({ success: false, message: "OrderSync record not found" }, { status: 404 });
     }
 
@@ -41,112 +50,62 @@ export async function action({ request }) {
       accessToken: session.accessToken,
     });
 
-    // Get order and auth status from service
-    const orderDetails = await getAuthorizationTransaction(admin, shopifyOrderName);
+    const orderID = `gid://shopify/Order/${orderSync.shopifyOrderId}`;
+    
+    // Get order and mandate details from service
+    const orderDetails = await getOrderTransaction(admin, orderID);
 
-    let captureResponse;
-    let usedMethod = "";
-
-    // --- HYBRID SWITCH LOGIC ---
-    if (
-  orderDetails.authorization && 
-  (transactionType === 'full' || transactionType === 'partial') && 
-  custbody_wmsse_ordertype === "Shopify Ready To Charge"
-) {
-      /**
-       * SCENARIO A: Valid & Active Authorization exists (Within 7 days window)
-       * Use standard orderCapture mutation.
-       */
-      console.log(`[Hybrid Capture] Routing to: STANDARD_CAPTURE (` + orderDetails.authorization.id + `)`);
-      usedMethod = "STANDARD_CAPTURE";
-
-      captureResponse = await admin.request(
-        `
-        mutation CaptureOrder($input: OrderCaptureInput!) {
-          orderCapture(input: $input) {
-            transaction {
-              id
-              kind
-              status
-              amountSet {
-                shopMoney {
-                  amount
-                  currencyCode
-                }
-              }
-            }
-            userErrors {
-              field
-              message
-            }
-          }
-        }
-        `,
-        {
-          variables: {
-            input: {
-              id: orderDetails.orderId,
-              parentTransactionId: orderDetails.authorization.id,
-              amount: amount.toString(),
-              currency: "USD",
-              finalCapture: false, // Keeps the authorization open for remaining fulfillments if within window
-            },
-          },
-        }
-      );
-    } else {
-      /**
-       * SCENARIO B: Authorization expired, invalid, or missing (> 7 days)
-       * Fallback to Vaulted Card using orderCreatePayment mutation.
-       */
-      console.log(`[Hybrid Capture] Routing to: VAULTED_CARD_CHARGE (orderCreatePayment)`);
-      usedMethod = "VAULTED_CARD_CHARGE";
-      if (!orderDetails.mandateId) {
-        console.error(`[Hybrid Capture] Error: No Vaulted Payment Mandate found for this B2B Order.`);
-        return json({ success: false, message: "No saved payment mandate found on this order for offline charging." }, { status: 400 });
-      }
-const idempotencyKey = crypto.randomUUID();
-      captureResponse = await admin.request(
-        `
-       mutation OrderCreateMandatePayment($amount: MoneyInput!, $autoCapture: Boolean!, $id: ID!, $idempotencyKey: String!, $mandateId: ID!) {
-          orderCreateMandatePayment(amount: $amount, autoCapture: $autoCapture, id: $id, idempotencyKey: $idempotencyKey, mandateId: $mandateId) {
-            job {
-              id
-              done
-            }
-            paymentReferenceId
-            userErrors {
-              field
-              message
-            }
-          }
-        }
-        `,
-        {
-          variables: {
-            id: orderDetails.orderId,
-            mandateId: orderDetails.mandateId,
-            idempotencyKey: idempotencyKey,
-            autoCapture: true, 
-            amount: {
-              amount: amount.toString(),
-              currencyCode: "USD"
-            }
-          },
-        }
+    if (!orderDetails?.mandateId) {
+      console.error(`[Hybrid Capture] Error: No Vaulted Payment Mandate found for B2B Order.`);
+      return json(
+        { success: false, message: "No saved payment mandate found on this order for offline charging." }, 
+        { status: 400 }
       );
     }
 
-    // CRITICAL LOG: Print the exact raw response from Shopify to your server console
-    console.log(`[Hybrid Capture] RAW SHOPIFY RESPONSE FOR [${usedMethod}]:`, JSON.stringify(captureResponse, null, 2));
+    console.log(`[Payment Capture Started]`);
+    const idempotencyKey = crypto.randomUUID();
 
-    const resultData = captureResponse?.data?.orderCapture || captureResponse?.data?.orderCreatePayment;
+    const captureResponse = await admin.request(
+      `
+      mutation OrderCreateMandatePayment($amount: MoneyInput!, $autoCapture: Boolean!, $id: ID!, $idempotencyKey: String!, $mandateId: ID!) {
+        orderCreateMandatePayment(amount: $amount, autoCapture: $autoCapture, id: $id, idempotencyKey: $idempotencyKey, mandateId: $mandateId) {
+          job {
+            id
+            done
+          }
+          paymentReferenceId
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+      `,
+      {
+        variables: {
+          id: orderID,
+          mandateId: orderDetails.mandateId,
+          idempotencyKey: idempotencyKey,
+          autoCapture: true,
+          amount: {
+            amount: amount.toString(),
+            currencyCode: "USD"
+          }
+        },
+      }
+    );
+
+    // Safe logging since captureResponse is guaranteed to exist here
+    console.log(`[Payment Capture] RAW SHOPIFY RESPONSE`, JSON.stringify(captureResponse, null, 2));
+
+    const resultData = captureResponse?.data?.orderCreateMandatePayment;
     const userErrors = resultData?.userErrors || [];
 
     // 1. Handle Explicit User Errors from Shopify
     if (userErrors.length > 0) {
       const errorMsg = userErrors.map((e) => e.message).join(", ");
-      console.error(`[Hybrid Capture] Shopify returned User Errors during ${usedMethod}: ${errorMsg}`);
+      console.error(`[Payment Capture] Shopify returned User Errors: ${errorMsg}`);
 
       await prisma.orderSyncLog.create({
         data: {
@@ -155,27 +114,45 @@ const idempotencyKey = crypto.randomUUID();
           direction: "NETSUITE_TO_SHOPIFY",
           eventType: "PAYMENT_CAPTURE",
           status: "FAILED",
-          message: `Method [${usedMethod}] failed with UserErrors: ${errorMsg}`,
+          message: `failed with UserErrors: ${errorMsg}`,
           requestPayload: payload,
-          responsePayload: captureResponse.data,
+          responsePayload: captureResponse?.data || {},
         },
       });
 
-      return json({ success: false, errors: userErrors, methodUsed: usedMethod }, { status: 400 });
+      return json({ success: false, errors: userErrors }, { status: 400 });
     }
 
-    // Extract transaction details uniformly based on the method used
-    let transactionDetails = [];
-    if (usedMethod === "STANDARD_CAPTURE") {
-      transactionDetails = resultData?.transaction ? [resultData.transaction] : [];
-    } else if (usedMethod === "VAULTED_CARD_CHARGE") {
-      transactionDetails = resultData?.paymentMapping?.map(m => m.transaction) || [];
+    let paymentReferenceId = resultData?.paymentReferenceId;
+    const jobInfo = resultData?.job;
+
+    // 2. FIX 2: Handle Asynchronous Background Job if paymentReferenceId is not immediately available
+    if (!paymentReferenceId && jobInfo) {
+      console.log(`[Payment Capture] Payment is processing asynchronously. Job ID: ${jobInfo.id}`);
+
+      await prisma.orderSyncLog.create({
+        data: {
+          orderSyncId: orderSync.id,
+          sourceSystem: "NETSUITE",
+          direction: "NETSUITE_TO_SYNCHRONIZER",
+          eventType: "PAYMENT_CAPTURE",
+          status: "PROCESSING",
+          message: `Payment charge job submitted to Shopify background queue. Job ID: ${jobInfo.id}`,
+          requestPayload: payload,
+          responsePayload: captureResponse?.data || {},
+        },
+      });
+
+      return json({
+        success: true,
+        message: "Payment capture is being processed by Shopify in the background.",
+        job: jobInfo
+      });
     }
 
-    // 2. Handle Silent Failure (Empty Transaction Array or Transaction Status !== SUCCESS)
-    if (transactionDetails.length === 0 || transactionDetails[0]?.status !== "SUCCESS") {
-      const txStatus = transactionDetails[0]?.status || "NO_TRANSACTION_CREATED";
-      console.error(`[Hybrid Capture] SILENT FAILURE: Method [${usedMethod}] generated transaction status: ${txStatus}`);
+    // 3. Handle True Silent Failure (No payment reference ID AND no background job generated)
+    if (!paymentReferenceId) {
+      console.error(`[Payment Capture] SILENT FAILURE: No payment reference or job data returned.`);
 
       await prisma.orderSyncLog.create({
         data: {
@@ -184,34 +161,29 @@ const idempotencyKey = crypto.randomUUID();
           direction: "NETSUITE_TO_SHOPIFY",
           eventType: "PAYMENT_CAPTURE",
           status: "FAILED",
-          message: `Silent Failure: Mutation [${usedMethod}] executed but transaction status is [${txStatus}].`,
+          message: `Silent Failure: No payment reference id or job received from Shopify.`,
           requestPayload: payload,
-          responsePayload: captureResponse.data,
+          responsePayload: captureResponse?.data || {},
         },
       });
 
       return json({
         success: false,
-        message: `Payment capture failed to settle via ${usedMethod}. Status: ${txStatus}`,
-        methodUsed: usedMethod,
-        rawShopifyData: captureResponse.data
+        message: `Payment capture failed to settle. Status: Failed`,
+        rawShopifyData: captureResponse?.data || {}
       }, { status: 400 });
     }
 
-    // 3. Success Path
-    const finalTx = transactionDetails[0];
-    const updatedFinancialStatus = resultData?.order?.displayFinancialStatus;
-    console.log(`[Hybrid Capture] SUCCESS! Method [${usedMethod}] created Transaction ${finalTx.id} with status ${finalTx.status}`);
+    // 4. Success Path (Synchronous Settlement)
+    console.log(`[Hybrid Capture] SUCCESS! created paymentReferenceId: ${paymentReferenceId}`);
 
-    // Update OrderSync table: Mark captured date ONLY if the order is completely "PAID"
     await prisma.orderSync.update({
       where: { id: orderSync.id },
       data: {
-        paymentCapturedAt: updatedFinancialStatus === "PAID" ? new Date() : null,
+        paymentCapturedAt: new Date(),
       },
     });
 
-    // Create success log in Database
     await prisma.orderSyncLog.create({
       data: {
         orderSyncId: orderSync.id,
@@ -219,17 +191,15 @@ const idempotencyKey = crypto.randomUUID();
         direction: "NETSUITE_TO_SHOPIFY",
         eventType: "PAYMENT_CAPTURE",
         status: "SUCCESS",
-        message: `Payment of ${amount} captured successfully using [${usedMethod}]. Order Status: ${updatedFinancialStatus}`,
+        message: `Payment of ${amount} captured successfully. payment Reference Id: ${paymentReferenceId}`,
         requestPayload: payload,
-        responsePayload: captureResponse.data,
+        responsePayload: captureResponse?.data || {},
       },
     });
 
     return json({
       success: true,
-      methodUsed: usedMethod,
-      financialStatus: updatedFinancialStatus,
-      transactions: transactionDetails,
+      paymentReferenceId: paymentReferenceId,
     });
 
   } catch (error) {
