@@ -1,5 +1,6 @@
 import { json } from "../utils/jsonResponse";
 import prisma from "../db.server";
+import crypto from "node:crypto";
 import { sessionStorage } from "../shopify.server";
 import { createAdminApiClient } from "@shopify/admin-api-client";
 import { getAuthorizationTransaction } from "../services/shopify/payment.service";
@@ -100,23 +101,20 @@ export async function action({ request }) {
        */
       console.log(`[Hybrid Capture] Routing to: VAULTED_CARD_CHARGE (orderCreatePayment)`);
       usedMethod = "VAULTED_CARD_CHARGE";
-
+      if (!orderDetails.mandateId) {
+        console.error(`[Hybrid Capture] Error: No Vaulted Payment Mandate found for this B2B Order.`);
+        return json({ success: false, message: "No saved payment mandate found on this order for offline charging." }, { status: 400 });
+      }
+const idempotencyKey = crypto.randomUUID();
       captureResponse = await admin.request(
         `
-        mutation OrderCreatePayment($id: ID!, $chargeAmount: MoneyInput!) {
-          orderCreatePayment(id: $id, chargeAmount: $chargeAmount) {
-            paymentMapping {
-              transaction {
-                id
-                kind
-                status
-                amountSet {
-                  shopMoney {
-                    amount
-                  }
-                }
-              }
+       mutation OrderCreateMandatePayment($amount: MoneyInput!, $autoCapture: Boolean!, $id: ID!, $idempotencyKey: String!, $mandateId: ID!) {
+          orderCreateMandatePayment(amount: $amount, autoCapture: $autoCapture, id: $id, idempotencyKey: $idempotencyKey, mandateId: $mandateId) {
+            job {
+              id
+              done
             }
+            paymentReferenceId
             userErrors {
               field
               message
@@ -127,10 +125,13 @@ export async function action({ request }) {
         {
           variables: {
             id: orderDetails.orderId,
-            chargeAmount: {
+            mandateId: orderDetails.mandateId,
+            idempotencyKey: idempotencyKey,
+            autoCapture: true, 
+            amount: {
               amount: amount.toString(),
-              currencyCode: "USD",
-            },
+              currencyCode: "USD"
+            }
           },
         }
       );
