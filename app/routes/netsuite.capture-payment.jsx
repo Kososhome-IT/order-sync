@@ -200,6 +200,7 @@ export async function action({ request }) {
     return json({
       success: true,
       paymentReferenceId: paymentReferenceId,
+      Status:"Ready for waiving"
     });
 
   } catch (error) {
