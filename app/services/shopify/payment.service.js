@@ -33,6 +33,7 @@ export async function getAuthorizationTransaction(admin, shopifyOrderName) {
     }
   );
 
+  console.log("RAW SHOPIFY RESPONSE for order",JSON.stringify(orderResponse, null, 2))
   const order = orderResponse?.data?.orders?.nodes?.[0];
 
   if (!order) {
