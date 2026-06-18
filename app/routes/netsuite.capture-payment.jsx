@@ -7,7 +7,7 @@ import { getAuthorizationTransaction } from "../services/shopify/payment.service
 export async function action({ request }) {
   try {
     const payload = await request.json();
-    const { shopifyOrderName, amount } = payload;
+    const { shopifyOrderName, amount,transactionType ,custbody_wmsse_ordertype} = payload;
 
     console.log(`[Hybrid Capture] Incoming request for Order: ${shopifyOrderName}, Amount: ${amount}`);
 
@@ -47,7 +47,11 @@ export async function action({ request }) {
     let usedMethod = "";
 
     // --- HYBRID SWITCH LOGIC ---
-    if (orderDetails.authorization) {
+    if (
+  orderDetails.authorization && 
+  (transactionType === 'full' || transactionType === 'partial') && 
+  custbody_wmsse_ordertype === "Shopify Ready To Charge"
+) {
       /**
        * SCENARIO A: Valid & Active Authorization exists (Within 7 days window)
        * Use standard orderCapture mutation.
