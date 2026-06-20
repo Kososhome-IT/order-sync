@@ -238,6 +238,16 @@ export async function action({ request }) {
       },
     });
 
+ await prisma.paymentSync.create({
+      data: {
+        netsuiteOrderId: orderSync.netsuiteOrderId.toString(),
+        shopifyOrderId: orderSync.shopifyOrderId.toString(),
+        authorizationId:shopifyOrderName,
+        paymentReference: paymentReferenceId,
+        capturedAmount: amount,
+        status: "SUCCESS",
+      },
+    });
 
     return json({
       success: true,
