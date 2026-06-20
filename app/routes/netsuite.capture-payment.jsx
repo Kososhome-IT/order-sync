@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import { sessionStorage } from "../shopify.server";
 import { createAdminApiClient } from "@shopify/admin-api-client";
 import { getOrderTransaction } from "../services/shopify/payment.service";
+import { netsuite } from "../services/netsuite/netsuite.server";
 
 export async function action({ request }) {
   try {
@@ -177,6 +178,46 @@ export async function action({ request }) {
     // 4. Success Path (Synchronous Settlement)
     console.log(`[Hybrid Capture] SUCCESS! created paymentReferenceId: ${paymentReferenceId}`);
 
+    console.log(`[Hybrid Capture] SUCCESS! created paymentReferenceId: ${paymentReferenceId}`);
+
+    // // ---  NETSUITE CUSTOMER DEPOSIT BLOCK start ---
+    try {
+      const db =  await prisma.orderSync.findFirst({
+      where: { shopifyOrderName },
+    });
+      //
+      const netsuiteCustomerId = db.netsuiteCompanyId; 
+      const netsuiteOrderId = db.netsuiteOrderId; 
+
+      console.log(`[NetSuite Deposit] Checking IDs in DB -> CustomerId: ${netsuiteCustomerId}, OrderId: ${netsuiteOrderId}`);
+
+      // 2. runtime check for null/undefined 
+      if (netsuiteCustomerId && netsuiteOrderId) {
+        const depositPayload = {
+          customer: { id: netsuiteCustomerId.toString() },
+          salesOrder: { id: netsuiteOrderId.toString() },
+          payment: Number(amount),
+          memo: `Automated Deposit via Shopify Capture. Ref: ${paymentReferenceId}`
+        };
+
+        console.log(`[NetSuite Deposit] Sending payload to NetSuite...`);
+        const depositResult = await netsuite.createCustomerDeposit(depositPayload);
+
+        if (depositResult.success) {
+          console.log(`[NetSuite Deposit] ✅ Deposit created successfully. Location: ${depositResult.location}`);
+        } else {
+          console.error(`[NetSuite Deposit] ❌ NetSuite API Rejected Deposit:`, JSON.stringify(depositResult.data, null, 2));
+        }
+      } else {
+        // 3. warn log if no id in db
+        console.warn(`[NetSuite Deposit] ⚠️ Skipped: DB is missing netsuiteCompanyId or netsuiteOrderId for this order.`);
+      }
+    } catch (nsError) {
+      console.error(`[NetSuite Deposit] 💥 Critical error during deposit creation:`, nsError);
+    }
+
+    // // ---  NETSUITE CUSTOMER DEPOSIT BLOCK END ---
+
     await prisma.orderSync.update({
       where: { id: orderSync.id },
       data: {
@@ -196,6 +237,7 @@ export async function action({ request }) {
         responsePayload: captureResponse?.data || {},
       },
     });
+
 
     return json({
       success: true,

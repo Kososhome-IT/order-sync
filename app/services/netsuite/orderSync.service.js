@@ -184,7 +184,6 @@ if (!netsuiteOrderId) {
   await prisma.orderSyncLog.create({
   data: {
     orderSyncId,
-
     sourceSystem: "NETSUITE",
     direction: "SHOPIFY_TO_NETSUITE",
 
@@ -213,6 +212,7 @@ await prisma.orderSync.update({
     id: orderSyncId,
   },
   data: {
+    netsuiteCompanyId:company.netsuiteCompanyId,
     netsuiteOrderId,
     status: "SUCCESS",
     action: "CREATE",
