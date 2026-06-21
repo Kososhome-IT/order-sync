@@ -1,4 +1,5 @@
 import { useLoaderData } from "react-router";
+import { useNavigate } from "react-router";
 import prisma from "../db.server";
 import { authenticate } from "../shopify.server";
 import { useState } from "react";
@@ -12,16 +13,45 @@ function jsonResponse(data, status = 200) {
 export async function loader({ request }) {
   await authenticate.admin(request);
 
-  const orders = await prisma.orderSync.findMany({
-    orderBy: { updatedAt: "desc" },
-    take: 50,
+ const url = new URL(request.url);
+
+const page = Number(
+  url.searchParams.get("page") || 1
+);
+
+const pageSize = 20;
+
+const totalCount =
+  await prisma.orderSync.count();
+
+const orders =
+  await prisma.orderSync.findMany({
+    orderBy: {
+      updatedAt: "desc",
+    },
+    skip: (page - 1) * pageSize,
+    take: pageSize,
   });
+
+return jsonResponse({
+  orders,
+  page,
+  totalCount,
+  totalPages: Math.ceil(
+    totalCount / pageSize
+  ),
+});
 
   return jsonResponse(orders);
 }
 
 export default function OrderSyncDashboard() {
-  const orders = useLoaderData();
+  const {
+  orders,
+  page,
+  totalPages,
+} = useLoaderData();
+const navigate = useNavigate();
 const [selectedPayload, setSelectedPayload] = useState(null);
 const [toast, setToast] = useState(null);
 const [retryingId, setRetryingId] = useState(null);
@@ -176,10 +206,10 @@ setTimeout(() => {
                     {entry.paymentCapturedAt ? (
                     <s-badge tone={statusTone(entry.status)}>
   
-    Captured At { new Date(
+    Captured { new Date(
         entry.paymentCapturedAt
       ).toLocaleString("en-US", {
-        year: "numeric",
+        // year: "2-digit",
         month: "short",
         day: "2-digit",
         hour: "2-digit",
@@ -230,7 +260,42 @@ setTimeout(() => {
             </s-table-body>
           </s-table>
         )}
-        
+     <div
+  style={{
+    display: "flex",
+    justifyContent: "center",
+    gap: "10px",
+    marginTop: "20px",
+  }}
+>
+  <s-button
+    disabled={page <= 1}
+    onClick={() =>
+      navigate(
+        `?page=${page - 1}`
+      )
+    }
+  >
+    Previous
+  </s-button>
+
+  <span>
+    Page {page} of {totalPages}
+  </span>
+
+  <s-button
+    disabled={
+      page >= totalPages
+    }
+    onClick={() =>
+      navigate(
+        `?page=${page + 1}`
+      )
+    }
+  >
+    Next
+  </s-button>
+</div>   
     </s-section>
 
 {selectedPayload && (
