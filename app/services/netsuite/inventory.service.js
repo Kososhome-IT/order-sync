@@ -1,24 +1,34 @@
 import { netsuite } from "./netsuite.server";
 
 export async function findItemBySku(sku) {
-  let result = await netsuite.request(
-    `/inventoryItem?q=${encodeURIComponent(
-      `itemId IS "${sku}"`
-    )}`,
-    "GET"
-  );
+  const itemTypes = [
+    "inventoryItem",
+    "kitItem",
+    "assemblyItem",
+    "nonInventorySaleItem",
+    "serviceSaleItem",
+    "otherChargeSaleItem",
+  ];
 
-  // if not fouond in inventory check in kits
-  if (!result.success || !result.data?.items?.length) {
-    result = await netsuite.request(
-      `/kitItem?q=${encodeURIComponent(`itemId IS "${sku}"`)}`,
+  for (const type of itemTypes) {
+    const result = await netsuite.request(
+      `/${type}?q=${encodeURIComponent(
+        `itemId IS "${sku}"`
+      )}`,
       "GET"
     );
+
+    if (
+      result.success &&
+      result.data?.items?.length
+    ) {
+      console.log(
+        `Found ${sku} in ${type}`
+      );
+
+      return result.data.items[0];
+    }
   }
 
- if (!result.success || !result.data?.items?.length) {
-    return null;
-  }
-
-  return result.data.items[0];
+  return null;
 }
