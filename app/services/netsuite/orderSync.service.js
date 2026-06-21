@@ -57,17 +57,13 @@ export async function processShopifyOrder(orderSyncId) {
     );
   }
   //  featching raw payload of order from  databse
-  const log = await prisma.orderSyncLog.findFirst({
-    where: {
-      orderSyncId,
-      eventType: "CREATE",
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-  });
+  const shopifyOrder = sync.webhookPayload;
 
-  const shopifyOrder = log.rawPayload;
+if (!shopifyOrder) {
+  throw new Error(
+    `Webhook payload missing for orderSyncId ${orderSyncId}`
+  );
+}
   // const shopifyPaymentTerm = shopifyOrder.payment_terms?.payment_terms_name;
   // const netsuiteTermId = PAYMENT_TERM_MAP[shopifyPaymentTerm] || NETSUITE_DEFAULTS.termsId;
 
@@ -184,7 +180,6 @@ if (!netsuiteOrderId) {
   await prisma.orderSyncLog.create({
   data: {
     orderSyncId,
-
     sourceSystem: "NETSUITE",
     direction: "SHOPIFY_TO_NETSUITE",
 
@@ -213,6 +208,7 @@ await prisma.orderSync.update({
     id: orderSyncId,
   },
   data: {
+    netsuiteCompanyId:company.netsuiteCompanyId,
     netsuiteOrderId,
     status: "SUCCESS",
     action: "CREATE",

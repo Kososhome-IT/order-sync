@@ -118,6 +118,11 @@ async updateOrder(orderId, orderData) {
     orderData
   );
 }
+
+// 4 .customer deposit helper
+async createCustomerDeposit(depositData) {
+  return this.request("/customerDeposit", "POST", depositData);
+}
 // helper for other uses
 async getByUrl(url) {
   return this.requestAbsolute(url, "GET");

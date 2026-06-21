@@ -11,6 +11,7 @@ node_modules
 database.sqlite
 
 .env
+.prettierrc
 .env.*
 
 
