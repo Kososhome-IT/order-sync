@@ -13,19 +13,46 @@ function jsonResponse(data, status = 200) {
 export async function loader({ request }) {
   await authenticate.admin(request);
 
- const url = new URL(request.url);
+  const url = new URL(request.url);
+  const search = url.searchParams.get("search") || "";
 
-const page = Number(
-  url.searchParams.get("page") || 1
-);
+  const page = Number(url.searchParams.get("page") || 1);
 
-const pageSize = 20;
+  const pageSize = 30;
+  const where = {};
 
-const totalCount =
-  await prisma.orderSync.count();
+  if (search) {
+    where.OR = [
+      {
+        shopifyOrderName: {
+          contains: search,
+          mode: "insensitive",
+        },
+      },
+      {
+        shopifyOrderId: {
+          contains: search,
+        },
+      },
+      {
+        netsuiteOrderId: {
+          contains: search,
+        },
+      },
+      {
+        netsuiteCompanyId: {
+          contains: search,
+        },
+      },
+    ];
+  }
 
-const orders =
-  await prisma.orderSync.findMany({
+  const totalCount = await prisma.orderSync.count({
+    where,
+  });
+
+  const orders = await prisma.orderSync.findMany({
+    where,
     orderBy: {
       updatedAt: "desc",
     },
@@ -33,89 +60,76 @@ const orders =
     take: pageSize,
   });
 
-return jsonResponse({
-  orders,
-  page,
-  totalCount,
-  totalPages: Math.ceil(
-    totalCount / pageSize
-  ),
-});
-
-  return jsonResponse(orders);
+  return jsonResponse({
+    orders,
+    page,
+    search,
+    totalCount,
+    totalPages: Math.ceil(totalCount / pageSize),
+  });
 }
 
 export default function OrderSyncDashboard() {
-  const {
-  orders,
-  page,
-  totalPages,
-} = useLoaderData();
-const navigate = useNavigate();
-const [selectedPayload, setSelectedPayload] = useState(null);
-const [toast, setToast] = useState(null);
-const [retryingId, setRetryingId] = useState(null);
-const retryOrder = async (
-  orderSyncId
-) => {
+  const { orders, page, totalPages, search: loaderSearch } = useLoaderData();
+  const navigate = useNavigate();
+  const [selectedPayload, setSelectedPayload] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [retryingId, setRetryingId] = useState(null);
+  const [search, setSearch] = useState(loaderSearch || "");
+  const retryOrder = async (orderSyncId) => {
     setRetryingId(orderSyncId);
-  try {
-    const response =
-      await fetch(
-        "/netsuite_create_order/retry",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-          body: JSON.stringify({
-            orderSyncId,
-          }),
-        }
-      );
+    try {
+      const response = await fetch("/netsuite_create_order/retry", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          orderSyncId,
+        }),
+      });
 
-    const result =
-      await response.json();
+      const result = await response.json();
 
-    if (result.success) {
-  setToast({
-    type: "success",
-    message: "Retry started successfully",
-  });
+      if (result.success) {
+        setToast({
+          type: "success",
+          message: "Retry started successfully",
+        });
 
-  setTimeout(() => {
-    setToast(null);
-    window.location.reload();
-  }, 2000);
-} else {
+        setTimeout(() => {
+          setToast(null);
+          window.location.reload();
+        }, 2000);
+      } else {
+        setToast({
+          type: "error",
+          message: result.error,
+        });
+
+        setTimeout(() => {
+          setToast(null);
+        }, 5000);
+      }
+    } catch (error) {
       setToast({
-  type: "error",
-  message: result.error,
-});
-
-setTimeout(() => {
-  setToast(null);
-}, 5000);
+        type: "error",
+        message: error.message,
+      });
+      setTimeout(() => {
+        setToast(null);
+      }, 5000);
+    } finally {
+      setRetryingId(null);
     }
-  } catch (error) {
-   setToast({
-  type: "error",
-  message: error.message,
-});
-setTimeout(() => {
-  setToast(null);
-}, 5000);
-  }finally {
-    setRetryingId(null);
-  }
-};
+  };
   return (
     <s-page title="Order Sync Dashboard" inlineSize="large">
-      <s-section>
+      <s-section padding="none">
         <s-grid
           gridTemplateColumns="auto auto"
           gap="small"
+          padding="small"
           placeContent="space-between space-between"
         >
           <s-grid-item>
@@ -128,10 +142,19 @@ setTimeout(() => {
             <s-badge tone="info">{orders.length} records</s-badge>
           </s-grid-item>
         </s-grid>
-
-        <s-paragraph tone="info" padding="base">
-          Displays high-level order synchronization status between Shopify and NetSuite.
-        </s-paragraph>
+        <s-grid
+          gridTemplateColumns="auto"
+          gap="base"
+          padding="small"
+          placeContent="space-between space-between"
+        >
+          <s-grid-item>
+            <s-paragraph tone="info" padding="base">
+              Displays high-level order synchronization status between Shopify
+              and NetSuite.
+            </s-paragraph>
+          </s-grid-item>
+        </s-grid>
 
         <s-divider style={{ margin: "16px 0" }} />
 
@@ -139,13 +162,57 @@ setTimeout(() => {
           <s-text tone="subdued">No order sync records available.</s-text>
         ) : (
           <s-table>
+            <s-grid
+              slot="filters"
+              gap="small-200"
+              gridTemplateColumns="1fr auto"
+            >
+              <s-text-field
+                label="Search orders"
+                labelAccessibilityVisibility="exclusive"
+                icon="search"
+                placeholder="Search order name, Shopify ID, NetSuite ID"
+                value={search}
+                onInput={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    navigate(`?page=1&search=${encodeURIComponent(search)}`);
+                  }
+                }}
+              />
+              <s-button
+                icon="sort"
+                variant="secondary"
+                accessibilityLabel="Sort"
+                commandFor="sort-actions"
+              />
+              {/* <s-button command="--hide"
+                onClick={() =>
+                  navigate(`?page=1&search=${encodeURIComponent(search)}`)
+                }
+              >
+                Search
+              </s-button> */}
+              <s-popover id="sort-actions">
+                <s-stack gap="none">
+                  <s-box padding="small">
+                    <s-choice-list label="Sort by" name="Sort by">
+                      <s-choice value="date" selected>
+                        Date
+                      </s-choice>
+                      <s-choice value="pieces">Pieces</s-choice>
+                    </s-choice-list>
+                  </s-box>
+                </s-stack>
+              </s-popover>
+            </s-grid>
             <s-table-header-row>
               <s-table-header>Origin</s-table-header>
-              <s-table-header>Last Synced From</s-table-header>
+              {/* <s-table-header>Last Synced From</s-table-header> */}
               <s-table-header>Shopify Order Name</s-table-header>
               <s-table-header>NetSuite Company</s-table-header>
               <s-table-header>NetSuite Order ID</s-table-header>
-              <s-table-header>Shopify Order ID</s-table-header>
+              {/* <s-table-header>Shopify Order ID</s-table-header> */}
               <s-table-header>Action</s-table-header>
               <s-table-header>Status</s-table-header>
               <s-table-header>Payment Status</s-table-header>
@@ -158,21 +225,17 @@ setTimeout(() => {
               {orders.map((entry) => (
                 <s-table-row key={entry.id}>
                   <s-table-cell>
-                    <s-badge tone="info">
-                      {entry.originSystem}
-                    </s-badge>
+                    <s-badge tone="info">{entry.originSystem}</s-badge>
                   </s-table-cell>
 
-                  <s-table-cell>
+                  {/* <s-table-cell>
                     <s-badge tone="warning">
                       {entry.lastSyncedFrom}
                     </s-badge>
-                  </s-table-cell>
+                  </s-table-cell> */}
 
                   <s-table-cell>
-                    <s-badge>
-                      {entry.shopifyOrderName || "-"}
-                    </s-badge>
+                    <s-badge>{entry.shopifyOrderName || "-"}</s-badge>
                   </s-table-cell>
 
                   <s-table-cell>
@@ -181,15 +244,13 @@ setTimeout(() => {
                     </s-text>
                   </s-table-cell>
 
-                  <s-table-cell>
-                    {entry.netsuiteOrderId || "—"}
-                  </s-table-cell>
+                  <s-table-cell>{entry.netsuiteOrderId || "—"}</s-table-cell>
 
-                  <s-table-cell>
+                  {/* <s-table-cell>
                     <s-text tone="subdued">
                       {entry.shopifyOrderId || "—"}
                     </s-text>
-                  </s-table-cell>
+                  </s-table-cell> */}
 
                   <s-table-cell>
                     <s-badge tone={actionTone(entry.action)}>
@@ -201,194 +262,154 @@ setTimeout(() => {
                     <s-badge tone={statusTone(entry.status)}>
                       {entry.status}
                     </s-badge>
-                 </s-table-cell>
-                 <s-table-cell>
+                  </s-table-cell>
+                  <s-table-cell>
                     {entry.paymentCapturedAt ? (
-                    <s-badge tone={statusTone(entry.status)}>
-  
-    Captured { new Date(
-        entry.paymentCapturedAt
-      ).toLocaleString("en-US", {
-        // year: "2-digit",
-        month: "short",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-      }) }
-  
-                    </s-badge>
-) : (
-  "-"
-)}
-                 </s-table-cell>
-                 <s-table-cell>
-  {entry.status === "FAILED" &&
-   !entry.netsuiteOrderId ? (
-   <s-button
-  disabled={retryingId === entry.id}
-  onClick={() =>
-    retryOrder(entry.id)
-  }
->
-  {retryingId === entry.id
-    ? "Retrying..."
-    : "Retry"}
-</s-button>
-  ) : (
-    "-"
-  )}
-</s-table-cell>
-                   <s-table-cell>
-  <s-button
-    onClick={() =>
-      setSelectedPayload(
-        entry.webhookPayload
-      )
-    }
-  >
-    View Payload
-  </s-button>
-</s-table-cell>
-                   <s-table-cell>
+                      <s-badge tone={statusTone(entry.status)}>
+                        Captured{" "}
+                        {new Date(entry.paymentCapturedAt).toLocaleString(
+                          "en-US",
+                          {
+                            // year: "2-digit",
+                            month: "short",
+                            day: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          }
+                        )}
+                      </s-badge>
+                    ) : (
+                      "-"
+                    )}
+                  </s-table-cell>
+                  <s-table-cell>
+                    {entry.status === "FAILED" && !entry.netsuiteOrderId ? (
+                      <s-button
+                        disabled={retryingId === entry.id}
+                        onClick={() => retryOrder(entry.id)}
+                      >
+                        {retryingId === entry.id ? "Retrying..." : "Retry"}
+                      </s-button>
+                    ) : (
+                      "-"
+                    )}
+                  </s-table-cell>
+                  <s-table-cell>
+                    <s-button
+                      onClick={() => setSelectedPayload(entry.webhookPayload)}
+                    >
+                      View Payload
+                    </s-button>
+                  </s-table-cell>
+                  <s-table-cell>
                     <s-text tone="subdued" variant="body-sm">
                       {new Date(entry.updatedAt).toLocaleString()}
                     </s-text>
                   </s-table-cell>
-                 
                 </s-table-row>
               ))}
             </s-table-body>
           </s-table>
         )}
-     <div
-  style={{
-    display: "flex",
-    justifyContent: "center",
-    gap: "10px",
-    marginTop: "20px",
-  }}
->
-  <s-button
-    disabled={page <= 1}
-    onClick={() =>
-      navigate(
-        `?page=${page - 1}`
-      )
-    }
-  >
-    Previous
-  </s-button>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            gap: "10px",
+            marginTop: "20px",
+          }}
+        >
+          <s-button
+            disabled={page <= 1}
+            onClick={() =>
+              navigate(`?page=${page - 1}&search=${encodeURIComponent(search)}`)
+            }
+          >
+            Previous
+          </s-button>
 
-  <span>
-    Page {page} of {totalPages}
-  </span>
+          <span>
+            Page {page} of {totalPages}
+          </span>
 
-  <s-button
-    disabled={
-      page >= totalPages
-    }
-    onClick={() =>
-      navigate(
-        `?page=${page + 1}`
-      )
-    }
-  >
-    Next
-  </s-button>
-</div>   
-    </s-section>
+          <s-button
+            disabled={page >= totalPages}
+            onClick={() =>
+              navigate(`?page=${page + 1}&search=${encodeURIComponent(search)}`)
+            }
+          >
+            Next
+          </s-button>
+        </div>
+      </s-section>
 
-{selectedPayload && (
-  <div
-    style={{
-      position: "fixed",
-      top: "5%",
-      left: "5%",
-      width: "90%",
-      height: "90%",
-      background: "white",
-      border: "1px solid #ddd",
-      zIndex: 99999,
-      overflow: "auto",
-      padding: "20px",
-    }}
-  >
-    <h2>
-      Shopify Webhook Payload
-    </h2>
+      {selectedPayload && (
+        <div
+          style={{
+            position: "fixed",
+            top: "5%",
+            left: "5%",
+            width: "90%",
+            height: "90%",
+            background: "white",
+            border: "1px solid #ddd",
+            zIndex: 99999,
+            overflow: "auto",
+            padding: "20px",
+          }}
+        >
+          <h2>Shopify Webhook Payload</h2>
 
-    <pre>
-      {JSON.stringify(
-        selectedPayload,
-        null,
-        2
+          <pre>{JSON.stringify(selectedPayload, null, 2)}</pre>
+
+          <button onClick={() => setSelectedPayload(null)}>Close</button>
+        </div>
       )}
-    </pre>
 
-    <button
-      onClick={() =>
-        setSelectedPayload(null)
-      }
-    >
-      Close
-    </button>
-  </div>
-)}
+      {toast && (
+        <div
+          style={{
+            position: "fixed",
+            top: "20px",
+            right: "20px",
+            minWidth: "350px",
+            background: toast.type === "success" ? "#e3f1df" : "#fde8e8",
+            border:
+              toast.type === "success"
+                ? "1px solid #50b83c"
+                : "1px solid #d72c0d",
+            borderRadius: "8px",
+            padding: "16px",
+            zIndex: 999999,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <strong>{toast.type === "success" ? "Success" : "Error"}</strong>
 
-{toast && (
-  <div
-    style={{
-      position: "fixed",
-      top: "20px",
-      right: "20px",
-      minWidth: "350px",
-      background:
-        toast.type === "success"
-          ? "#e3f1df"
-          : "#fde8e8",
-      border:
-        toast.type === "success"
-          ? "1px solid #50b83c"
-          : "1px solid #d72c0d",
-      borderRadius: "8px",
-      padding: "16px",
-      zIndex: 999999,
-      boxShadow:
-        "0 4px 12px rgba(0,0,0,0.15)",
-    }}
-  >
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-      }}
-    >
-      <strong>
-        {toast.type === "success"
-          ? "Success"
-          : "Error"}
-      </strong>
+            <button
+              onClick={() => setToast(null)}
+              style={{
+                border: "none",
+                background: "transparent",
+                cursor: "pointer",
+                fontSize: "18px",
+              }}
+            >
+              ×
+            </button>
+          </div>
 
-      <button
-        onClick={() => setToast(null)}
-        style={{
-          border: "none",
-          background: "transparent",
-          cursor: "pointer",
-          fontSize: "18px",
-        }}
-      >
-        ×
-      </button>
-    </div>
-
-    <div style={{ marginTop: "8px" }}>
-      {toast.message}
-    </div>
-  </div>
-)}
-</s-page>
+          <div style={{ marginTop: "8px" }}>{toast.message}</div>
+        </div>
+      )}
+    </s-page>
   );
 }
 
@@ -399,6 +420,7 @@ setTimeout(() => {
 function statusTone(status) {
   if (status === "SUCCESS") return "success";
   if (status === "FAILED") return "critical";
+  if (status === "PROCESSING") return "warning";
   if (status === "PENDING") return "attention";
   if (status === "PARTIAL") return "warning";
   return "info";
