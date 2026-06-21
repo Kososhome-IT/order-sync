@@ -23,9 +23,12 @@ export async function loader({ request }) {
 export default function OrderSyncDashboard() {
   const orders = useLoaderData();
 const [selectedPayload, setSelectedPayload] = useState(null);
+const [toast, setToast] = useState(null);
+const [retryingId, setRetryingId] = useState(null);
 const retryOrder = async (
   orderSyncId
 ) => {
+    setRetryingId(orderSyncId);
   try {
     const response =
       await fetch(
@@ -46,16 +49,35 @@ const retryOrder = async (
       await response.json();
 
     if (result.success) {
-      alert(
-        "Retry started successfully"
-      );
+  setToast({
+    type: "success",
+    message: "Retry started successfully",
+  });
 
-      window.location.reload();
-    } else {
-      alert(result.error);
+  setTimeout(() => {
+    setToast(null);
+    window.location.reload();
+  }, 2000);
+} else {
+      setToast({
+  type: "error",
+  message: result.error,
+});
+
+setTimeout(() => {
+  setToast(null);
+}, 5000);
     }
   } catch (error) {
-    alert(error.message);
+   setToast({
+  type: "error",
+  message: error.message,
+});
+setTimeout(() => {
+  setToast(null);
+}, 5000);
+  }finally {
+    setRetryingId(null);
   }
 };
   return (
@@ -172,13 +194,16 @@ const retryOrder = async (
                  <s-table-cell>
   {entry.status === "FAILED" &&
    !entry.netsuiteOrderId ? (
-    <s-button
-      onClick={() =>
-        retryOrder(entry.id)
-      }
-    >
-      Retry
-    </s-button>
+   <s-button
+  disabled={retryingId === entry.id}
+  onClick={() =>
+    retryOrder(entry.id)
+  }
+>
+  {retryingId === entry.id
+    ? "Retrying..."
+    : "Retry"}
+</s-button>
   ) : (
     "-"
   )}
@@ -245,6 +270,59 @@ const retryOrder = async (
   </div>
 )}
 
+{toast && (
+  <div
+    style={{
+      position: "fixed",
+      top: "20px",
+      right: "20px",
+      minWidth: "350px",
+      background:
+        toast.type === "success"
+          ? "#e3f1df"
+          : "#fde8e8",
+      border:
+        toast.type === "success"
+          ? "1px solid #50b83c"
+          : "1px solid #d72c0d",
+      borderRadius: "8px",
+      padding: "16px",
+      zIndex: 999999,
+      boxShadow:
+        "0 4px 12px rgba(0,0,0,0.15)",
+    }}
+  >
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+      }}
+    >
+      <strong>
+        {toast.type === "success"
+          ? "Success"
+          : "Error"}
+      </strong>
+
+      <button
+        onClick={() => setToast(null)}
+        style={{
+          border: "none",
+          background: "transparent",
+          cursor: "pointer",
+          fontSize: "18px",
+        }}
+      >
+        ×
+      </button>
+    </div>
+
+    <div style={{ marginTop: "8px" }}>
+      {toast.message}
+    </div>
+  </div>
+)}
 </s-page>
   );
 }
