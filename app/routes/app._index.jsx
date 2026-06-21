@@ -23,6 +23,41 @@ export async function loader({ request }) {
 export default function OrderSyncDashboard() {
   const orders = useLoaderData();
 const [selectedPayload, setSelectedPayload] = useState(null);
+const retryOrder = async (
+  orderSyncId
+) => {
+  try {
+    const response =
+      await fetch(
+        "/netsuite_create_order/retry",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            orderSyncId,
+          }),
+        }
+      );
+
+    const result =
+      await response.json();
+
+    if (result.success) {
+      alert(
+        "Retry started successfully"
+      );
+
+      window.location.reload();
+    } else {
+      alert(result.error);
+    }
+  } catch (error) {
+    alert(error.message);
+  }
+};
   return (
     <s-page title="Order Sync Dashboard" inlineSize="large">
       <s-section>
@@ -62,6 +97,7 @@ const [selectedPayload, setSelectedPayload] = useState(null);
               <s-table-header>Action</s-table-header>
               <s-table-header>Status</s-table-header>
               <s-table-header>Payment Status</s-table-header>
+              <s-table-header>Retry</s-table-header>
               <s-table-header>Webhook Payload</s-table-header>
               <s-table-header>Updated At</s-table-header>
             </s-table-header-row>
@@ -133,6 +169,20 @@ const [selectedPayload, setSelectedPayload] = useState(null);
   "-"
 )}
                  </s-table-cell>
+                 <s-table-cell>
+  {entry.status === "FAILED" &&
+   !entry.netsuiteOrderId ? (
+    <s-button
+      onClick={() =>
+        retryOrder(entry.id)
+      }
+    >
+      Retry
+    </s-button>
+  ) : (
+    "-"
+  )}
+</s-table-cell>
                    <s-table-cell>
   <s-button
     onClick={() =>
