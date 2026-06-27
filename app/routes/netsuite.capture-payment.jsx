@@ -6,12 +6,14 @@ import { createAdminApiClient } from "@shopify/admin-api-client";
 import { getOrderTransaction } from "../services/shopify/payment.service";
 import { netsuite } from "../services/netsuite/netsuite.server";
 
+const NETSUITE_READY_TO_WAVE_ORDER_TYPE_ID = "2";
+
 export async function action({ request }) {
   try {
     const payload = await request.json();
     const { shopifyOrderName, amount, custbody_wmsse_ordertype } = payload;
 
-    console.log(`[Hybrid Capture] Incoming request for Order: ${shopifyOrderName}, Amount: ${amount}`);
+    console.log(`[Payment Capture] Incoming request for Order: ${shopifyOrderName}, Amount: ${amount}`);
 
     if (!shopifyOrderName || !amount) {
       return json(
@@ -176,9 +178,9 @@ export async function action({ request }) {
     }
 
     // 4. Success Path (Synchronous Settlement)
-    console.log(`[Hybrid Capture] SUCCESS! created paymentReferenceId: ${paymentReferenceId}`);
+    console.log(`[PAYMENT Capture] SUCCESS! created paymentReferenceId: ${paymentReferenceId}`);
 
-    console.log(`[Hybrid Capture] SUCCESS! created paymentReferenceId: ${paymentReferenceId}`);
+    console.log(`[PAYMENT Capture] SUCCESS! created paymentReferenceId: ${paymentReferenceId}`);
 
     // // ---  NETSUITE CUSTOMER DEPOSIT BLOCK start ---
     try {
@@ -209,11 +211,59 @@ export async function action({ request }) {
           console.log(`[NetSuite Deposit] ✅ Deposit created successfully. Location: ${depositResult.location}`);
           // setting order type status to ready to wave
           console.log(`[NetSuite Update Order] ✅ Deposit created successfully. Now setting order status to Ready to wave`);
-          await netsuite.updateOrder(netsuiteOrderId, {
+          const orderUpdateResult = await netsuite.updateOrderFields(netsuiteOrderId, {
             custbody_wmsse_ordertype: {
-            id: "2"
-            }
+              id: NETSUITE_READY_TO_WAVE_ORDER_TYPE_ID,
+            },
           });
+
+          if (!orderUpdateResult.success) {
+            const message =
+              orderUpdateResult.data?.["o:errorDetails"]
+                ?.map((error) => error.detail)
+                ?.join(", ") ||
+              orderUpdateResult.data?.message ||
+              "NetSuite sales order status update failed";
+
+            console.error(
+              `[NetSuite Update Order] Failed to update order type for Sales Order ${netsuiteOrderId}: ${message}`,
+              JSON.stringify(orderUpdateResult.data, null, 2)
+            );
+
+            await prisma.orderSyncLog.create({
+              data: {
+                orderSyncId: orderSync.id,
+                sourceSystem: "NETSUITE",
+                direction: "NETSUITE_TO_NETSUITE",
+                eventType: "ORDER_STATUS_UPDATE",
+                status: "FAILED",
+                message,
+                requestPayload: {
+                  netsuiteOrderId,
+                  custbody_wmsse_ordertype: NETSUITE_READY_TO_WAVE_ORDER_TYPE_ID,
+                },
+                responsePayload: orderUpdateResult.data || {},
+              },
+            });
+          } else {
+            console.log(`[NetSuite Update Order] Sales Order ${netsuiteOrderId} set to Ready to wave.`);
+
+            await prisma.orderSyncLog.create({
+              data: {
+                orderSyncId: orderSync.id,
+                sourceSystem: "NETSUITE",
+                direction: "NETSUITE_TO_NETSUITE",
+                eventType: "ORDER_STATUS_UPDATE",
+                status: "SUCCESS",
+                message: "NetSuite sales order set to Ready to wave",
+                requestPayload: {
+                  netsuiteOrderId,
+                  custbody_wmsse_ordertype: NETSUITE_READY_TO_WAVE_ORDER_TYPE_ID,
+                },
+                responsePayload: orderUpdateResult,
+              },
+            });
+          }
         } else {
           console.error(`[NetSuite Deposit] ❌ NetSuite API Rejected Deposit:`, JSON.stringify(depositResult.data, null, 2));
         console.log(`[NetSuite Update Order] skkiped due to no customer deposite created`)
@@ -223,7 +273,7 @@ export async function action({ request }) {
         console.warn(`[NetSuite Deposit] ⚠️ Skipped: DB is missing netsuiteCompanyId or netsuiteOrderId for this order.`);
       }
     } catch (nsError) {
-      console.error(`[NetSuite Deposit] 💥 Critical error during deposit creation:`, nsError);
+      console.error(`[NetSuite Deposit] Critical error during deposit creation:`, nsError);
     }
 
     // // ---  NETSUITE CUSTOMER DEPOSIT BLOCK END ---

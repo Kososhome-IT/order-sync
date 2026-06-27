@@ -110,10 +110,19 @@ async getOrderItem(orderId, lineId) {
     return this.request("/salesOrder", "POST", orderData);
   }
 
-  // 3. Update Order
+  // 3. Update Order lines
 async updateOrder(orderId, orderData) {
   return this.request(
     `/salesOrder/${orderId}?replace=item`,
+    "PATCH",
+    orderData
+  );
+}
+
+// Update sales order body fields without replacing item sublist lines.
+async updateOrderFields(orderId, orderData) {
+  return this.request(
+    `/salesOrder/${orderId}`,
     "PATCH",
     orderData
   );
