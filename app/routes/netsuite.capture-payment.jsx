@@ -7,6 +7,64 @@ import { getOrderTransaction } from "../services/shopify/payment.service";
 import { netsuite } from "../services/netsuite/netsuite.server";
 
 const NETSUITE_READY_TO_WAVE_ORDER_TYPE_ID = "2";
+const NETSUITE_ORDER_UPDATE_RETRY_DELAYS_MS = [0, 2000, 5000, 10000];
+const NETSUITE_DEPOSIT_AMOUNT_CHARGE_FIELD = "custbody_ch_deposit_amount_charge_shop";
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getNetSuiteErrorMessage(result) {
+  return (
+    result?.data?.["o:errorDetails"]
+      ?.map((error) => error.detail)
+      ?.join(", ") ||
+    result?.data?.message ||
+    "NetSuite sales order status update failed"
+  );
+}
+
+function isRecordChangedError(result) {
+  return getNetSuiteErrorMessage(result).includes("Record has been changed");
+}
+
+async function updateNetSuiteOrderTypeWithRetry(netsuiteOrderId) {
+  let lastResult = null;
+
+  for (let attempt = 0; attempt < NETSUITE_ORDER_UPDATE_RETRY_DELAYS_MS.length; attempt += 1) {
+    const delayMs = NETSUITE_ORDER_UPDATE_RETRY_DELAYS_MS[attempt];
+
+    if (delayMs > 0) {
+      console.log(
+        `[NetSuite Update Order] Waiting ${delayMs}ms before retry ${attempt + 1} for Sales Order ${netsuiteOrderId}`
+      );
+      await sleep(delayMs);
+    }
+
+    lastResult = await netsuite.updateOrderFields(netsuiteOrderId, {
+      custbody_wmsse_ordertype: {
+        id: NETSUITE_READY_TO_WAVE_ORDER_TYPE_ID,
+      },
+      [NETSUITE_DEPOSIT_AMOUNT_CHARGE_FIELD]: null,
+    });
+
+    if (lastResult.success || !isRecordChangedError(lastResult)) {
+      return {
+        ...lastResult,
+        attempts: attempt + 1,
+      };
+    }
+
+    console.warn(
+      `[NetSuite Update Order] NetSuite says record changed for Sales Order ${netsuiteOrderId}; retrying.`
+    );
+  }
+
+  return {
+    ...lastResult,
+    attempts: NETSUITE_ORDER_UPDATE_RETRY_DELAYS_MS.length,
+  };
+}
 
 export async function action({ request }) {
   try {
@@ -211,19 +269,10 @@ export async function action({ request }) {
           console.log(`[NetSuite Deposit] ✅ Deposit created successfully. Location: ${depositResult.location}`);
           // setting order type status to ready to wave
           console.log(`[NetSuite Update Order] ✅ Deposit created successfully. Now setting order status to Ready to wave`);
-          const orderUpdateResult = await netsuite.updateOrderFields(netsuiteOrderId, {
-            custbody_wmsse_ordertype: {
-              id: NETSUITE_READY_TO_WAVE_ORDER_TYPE_ID,
-            },
-          });
+          const orderUpdateResult = await updateNetSuiteOrderTypeWithRetry(netsuiteOrderId);
 
           if (!orderUpdateResult.success) {
-            const message =
-              orderUpdateResult.data?.["o:errorDetails"]
-                ?.map((error) => error.detail)
-                ?.join(", ") ||
-              orderUpdateResult.data?.message ||
-              "NetSuite sales order status update failed";
+            const message = getNetSuiteErrorMessage(orderUpdateResult);
 
             console.error(
               `[NetSuite Update Order] Failed to update order type for Sales Order ${netsuiteOrderId}: ${message}`,
@@ -241,12 +290,16 @@ export async function action({ request }) {
                 requestPayload: {
                   netsuiteOrderId,
                   custbody_wmsse_ordertype: NETSUITE_READY_TO_WAVE_ORDER_TYPE_ID,
+                  [NETSUITE_DEPOSIT_AMOUNT_CHARGE_FIELD]: null,
+                  attempts: orderUpdateResult.attempts,
                 },
                 responsePayload: orderUpdateResult.data || {},
               },
             });
           } else {
-            console.log(`[NetSuite Update Order] Sales Order ${netsuiteOrderId} set to Ready to wave.`);
+            console.log(
+              `[NetSuite Update Order] Sales Order ${netsuiteOrderId} set to Ready to wave after ${orderUpdateResult.attempts} attempt(s).`
+            );
 
             await prisma.orderSyncLog.create({
               data: {
@@ -259,6 +312,8 @@ export async function action({ request }) {
                 requestPayload: {
                   netsuiteOrderId,
                   custbody_wmsse_ordertype: NETSUITE_READY_TO_WAVE_ORDER_TYPE_ID,
+                  [NETSUITE_DEPOSIT_AMOUNT_CHARGE_FIELD]: null,
+                  attempts: orderUpdateResult.attempts,
                 },
                 responsePayload: orderUpdateResult,
               },
