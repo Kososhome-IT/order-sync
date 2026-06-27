@@ -203,10 +203,20 @@ export async function action({ request }) {
         console.log(`[NetSuite Deposit] Sending payload to NetSuite...`);
         const depositResult = await netsuite.createCustomerDeposit(depositPayload);
 
+       
+
         if (depositResult.success) {
           console.log(`[NetSuite Deposit] ✅ Deposit created successfully. Location: ${depositResult.location}`);
+          // setting order type status to ready to wave
+          console.log(`[NetSuite Update Order] ✅ Deposit created successfully. Now setting order status to Ready to wave`);
+          await netsuite.updateOrder(netsuiteOrderId, {
+            custbody_wmsse_ordertype: {
+            id: "2"
+            }
+          });
         } else {
           console.error(`[NetSuite Deposit] ❌ NetSuite API Rejected Deposit:`, JSON.stringify(depositResult.data, null, 2));
+        console.log(`[NetSuite Update Order] skkiped due to no customer deposite created`)
         }
       } else {
         // 3. warn log if no id in db
