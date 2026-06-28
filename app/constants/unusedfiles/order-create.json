@@ -1,0 +1,61 @@
+{
+     "_comment":"this json is refence for netsuite script and minimum payload which is expected to recived from netsuite script to create order in shopify",  
+  "title": "WEBSITE_DESCRIPTION 88",
+  "sku": "ITEM_NAME88",
+  "weight":"13",
+  "netsuite_user": "POSTMAN",
+    "quantity_by_location": {
+    "high point, nc": 10,
+    "los angeles, ca": 5
+  },
+  "barcode": "UPC_CODE",
+  "hs_code": "9403.50",
+  "price": "500",
+  "compare_at": "500",
+  "descriptionHtml": "<p>ROMANCE_COPY</p>",
+
+  "metafields": [
+    { "namespace": "custom", "key": "collection", "type": "single_line_text_field", "value": "COLLECTION_NAME" },
+    { "namespace": "custom", "key": "class", "type": "single_line_text_field", "value": "CLASS" },
+    { "namespace": "custom", "key": "product_category", "type": "single_line_text_field", "value": "PRODUCT_CATEGORY" },
+    { "namespace": "custom", "key": "product_sub_category", "type": "single_line_text_field", "value": "PRODUCT_SUB_CATEGORY" },
+    { "namespace": "custom", "key": "room_type", "type": "single_line_text_field", "value": "ROOM_TYPE" },
+    { "namespace": "custom", "key": "made_to_order", "type": "single_line_text_field", "value": "YES_OR_NO" },
+    { "namespace": "custom", "key": "made_in_usa", "type": "single_line_text_field", "value": "YES_OR_NO" },
+    { "namespace": "custom", "key": "artist_medium", "type": "single_line_text_field", "value": "ARTIST_MEDIUM" },
+    { "namespace": "custom", "key": "frame", "type": "single_line_text_field", "value": "FRAME" },
+    { "namespace": "custom", "key": "frame_style", "type": "single_line_text_field", "value": "FRAME_STYLE" },
+    { "namespace": "custom", "key": "frame_thickness", "type": "single_line_text_field", "value": "FRAME_THICKNESS" },
+
+    { "namespace": "custom", "key": "number_of_slats", "type": "number_integer", "value": 0 },
+    { "namespace": "custom", "key": "casegoods_drawer_quantity", "type": "number_integer", "value": 0 },
+    { "namespace": "custom", "key": "casegoods_small_drawer_quantity", "type": "number_integer", "value": 0 },
+    { "namespace": "custom", "key": "casegoods_medium_drawer_quantity", "type": "number_integer", "value": 0 },
+    { "namespace": "custom", "key": "casegoods_large_drawer_quantity", "type": "number_integer", "value": 0 }
+  ],
+
+  "variantMetafields": [
+    { "namespace": "custom", "key": "show_on_website", "type": "single_line_text_field", "value": "YES" },
+    { "namespace": "custom", "key": "internal_id", "type": "number_integer", "value": 12345 },
+    { "namespace": "custom", "key": "division_status", "type": "single_line_text_field", "value": "ACTIVE" },
+    { "namespace": "custom", "key": "best_sellers", "type": "single_line_text_field", "value": "NO" },
+    { "namespace": "custom", "key": "imap", "type": "number_decimal", "value": 0.0 },
+
+    { "namespace": "custom", "key": "width", "type": "dimension", "value": "0 in" },
+    { "namespace": "custom", "key": "depth", "type": "dimension", "value": "0 in" },
+    { "namespace": "custom", "key": "height", "type": "dimension", "value": "0 in" },
+    { "namespace": "custom", "key": "item_weight", "type": "number_decimal", "value": "0 lb" },
+
+    { "namespace": "custom", "key": "increment_qty", "type": "number_integer", "value": 1 },
+
+    { "namespace": "custom", "key": "packaged_weight", "type": "number_decimal", "value": "12 lb" },
+    { "namespace": "custom", "key": "packaged_cubic_feet", "type": "number_decimal", "value": 0.0 },
+
+    { "namespace": "custom", "key": "ai_file_link", "type": "url", "value": "https://example.com/file.ai" },
+
+    { "namespace": "custom", "key": "nc_instock", "type": "number_integer", "value": 0 },
+    { "namespace": "custom", "key": "ca_instock", "type": "number_integer", "value": 0 },
+    { "namespace": "custom", "key": "ca_eta", "type": "date", "value": null },
+    { "namespace": "custom", "key": "nc_eta", "type": "date", "value": null }
+  ]
+}

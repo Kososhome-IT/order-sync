@@ -1,0 +1,10 @@
+{
+    "_comment":"this json is refence for netsuite script and minimum payload which is expected to recived from netsuite script to fulfil order",
+  "shopifyOrderName": "CLHM71243",
+  "trackingNumber": "1Z999AA10123456784",
+  "trackingCompany": "UPS",
+  "trackingUrl": "https://www.ups.com/track?tracknum=1Z999AA10123456784",
+  "notifyCustomer": true,
+  "memo": "Bulk fulfillment sent via NetSuite Postman Test"
+}
+

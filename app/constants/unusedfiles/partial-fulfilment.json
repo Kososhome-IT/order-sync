@@ -1,0 +1,20 @@
+{
+   "_comment":"this json is refence for netsuite script and minimum payload which is expected to recived from netsuite script to fulfil order partially",  
+  "shopifyOrderId": "4507894235123",
+  "items": [
+    {
+      "sku": "skuxxxx",
+      "quantity": 2
+    },
+    {
+      "sku": "skuyyyy",
+      "quantity": 5
+    }
+  ],
+  "trackingInfo": {
+    "number": "9400100000000000000000",
+    "company": "USPS",
+    "url": "https://tools.usps.com/go/TrackConfirmAction?tLabels=9400100000000000000000"
+  },
+  "notify_customer": false
+}

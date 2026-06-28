@@ -1,0 +1,6 @@
+{
+     "_comment":"this json is refence for netsuite script and minimum payload which is expected to recived from netsuite script to charge payment",  
+  "shopifyOrderName":"CLHM71211",
+  "amount": 100,
+  "custbody_wmsse_ordertype":"Shopify Ready To Charge"
+}
