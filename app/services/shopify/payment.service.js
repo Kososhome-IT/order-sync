@@ -51,3 +51,49 @@ export async function getOrderTransaction(admin, orderID) {
     mandateId: mandateId,
   };
 }
+
+
+/**
+ * Triggers an offline payment capture using a saved customer payment mandate.
+ * * @param {Object} admin - The authenticated Shopify Admin API client instance
+ * @param {Object} params
+ * @param {string} params.orderId - The full GID of the Shopify order (e.g., 'gid://shopify/Order/123456')
+ * @param {string} params.mandateId - The GID of the customer payment mandate
+ * @param {string} params.idempotencyKey - A unique string token to prevent duplicate charging
+ * @param {number|string} params.amount - The monetary value to capture
+ * @param {string} [params.currencyCode="USD"] - Standard ISO currency string
+ * @returns {Promise<Object>} The raw GraphQL mutation response from Shopify
+ */
+export async function createMandatePayment(admin, { orderId, mandateId, idempotencyKey, amount, currencyCode = "USD" }) {
+  const mutation = `#graphql
+    mutation OrderCreateMandatePayment($amount: MoneyInput!, $autoCapture: Boolean!, $id: ID!, $idempotencyKey: String!, $mandateId: ID!) {
+      orderCreateMandatePayment(amount: $amount, autoCapture: $autoCapture, id: $id, idempotencyKey: $idempotencyKey, mandateId: $mandateId) {
+        job {
+          id
+          done
+        }
+        paymentReferenceId
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const response = await admin.request(mutation, {
+    variables: {
+      id: orderId,
+      mandateId: mandateId,
+      idempotencyKey: idempotencyKey,
+      autoCapture: true,
+      amount: {
+        amount: amount.toString(),
+        currencyCode: currencyCode,
+      },
+    },
+  });
+
+  console.log(`[Payment Capture] RAW SHOPIFY MUTATION RESPONSE`, JSON.stringify(response, null, 2));
+  return response;
+}
