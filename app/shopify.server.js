@@ -4,9 +4,9 @@ import {
   AppDistribution,
   shopifyApp,
 } from "@shopify/shopify-app-react-router/server";
+import { createAdminApiClient } from "@shopify/admin-api-client";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
-// import { webhooks } from "./utils/registerOrderWebhooks";
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -23,25 +23,24 @@ const shopify = shopifyApp({
   ...(process.env.SHOP_CUSTOM_DOMAIN
     ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }
     : {})
-  // hooks: {
-  //   afterAuth: async ({ session }) => {
-     
-  //       console.log("🔥 afterAuth fired for:", session.shop);
-
-  //       await shopify.registerWebhooks({
-  //         session,
-  //         webhooks,
-  //       });
-
-  //       console.log("✅ Webhooks registered successfully");
-    
-  //       console.error("❌ Webhook registration failed:", error);
-      
-  //   },
-  // }  
 });
 
 export default shopify;
+
+export async function getAdminClient(shopDomain) {
+  const session = await shopify.sessionStorage.loadSession(`offline_${shopDomain}`);
+
+  if (!session || !session.accessToken) {
+    throw new Error(`Shop ${shopDomain} no valid session found`);
+  }
+
+  return createAdminApiClient({
+    storeDomain: shopDomain,
+    apiVersion: "2026-04", 
+    accessToken: session.accessToken,
+  });
+}
+
 export const apiVersion = ApiVersion.October25;
 export const addDocumentResponseHeaders = shopify.addDocumentResponseHeaders;
 export const authenticate = shopify.authenticate;
