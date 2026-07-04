@@ -1,4 +1,5 @@
-const NETSUITE_READY_TO_WAVE_ORDER_TYPE_ID = "2";
+const NETSUITE_READY_TO_WAVE_ID = "2";
+const NETSUITE_CHARGE_DECLINE_ID = "12";
 const NETSUITE_ORDER_UPDATE_RETRY_DELAYS_MS = [0, 2000, 5000, 10000];
 const NETSUITE_DEPOSIT_AMOUNT_CHARGE_FIELD = "custbody_ch_deposit_amount_charge_shop";
 import { netsuite } from "../services/netsuite/netsuite.server";
@@ -31,7 +32,7 @@ export async function updateNetSuiteOrderTypeWithRetry(netsuiteOrderId) {
 
     lastResult = await netsuite.updateOrderFields(netsuiteOrderId, {
       custbody_wmsse_ordertype: {
-        id: NETSUITE_READY_TO_WAVE_ORDER_TYPE_ID,
+        id: NETSUITE_READY_TO_WAVE_ID,
       },
       [NETSUITE_DEPOSIT_AMOUNT_CHARGE_FIELD]: null,
     });
@@ -42,4 +43,13 @@ export async function updateNetSuiteOrderTypeWithRetry(netsuiteOrderId) {
   }
 
   return { ...lastResult, attempts: NETSUITE_ORDER_UPDATE_RETRY_DELAYS_MS.length };
+}
+
+export async function updateNetSuiteOrderChargeDecline(netsuiteOrderId) {
+     await netsuite.updateOrderFields(netsuiteOrderId, {
+      custbody_wmsse_ordertype: {
+        id: NETSUITE_CHARGE_DECLINE_ID,
+      }
+    });
+  return {  };
 }
