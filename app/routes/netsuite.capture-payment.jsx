@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { getAdminClient } from "../shopify.server";
 import { getOrderTransaction, createMandatePayment } from "../services/shopify/payment.service";
 import { netsuite } from "../services/netsuite/netsuite.server";
-import { sleep, getNetSuiteErrorMessage, updateNetSuiteOrderTypeWithRetry } from "../utils/payment.utils";
+import { sleep, getNetSuiteErrorMessage, updateNetSuiteOrderTypeWithRetry,updateNetSuiteOrderChargeDecline } from "../utils/payment.utils";
 import { orderRepository } from "../repositories/order.repository";
 import { paymentRepository } from "../repositories/payment.repository";
 import { syncLogger } from "../repositories/logger.service";
@@ -42,6 +42,10 @@ export async function action({ request }) {
 
     orderSync = await orderRepository.findByName(shopifyOrderName);
     if (!orderSync) {
+      await syncLogger.failed({
+        message: `order not found in database with order name: ${shopifyOrderName}`,
+        requestPayload: payload,
+      }).catch(err => console.error("[Logger Error] Failed to log userErrors:", err));
       return json({ success: false, message: "OrderSync record not found" }, { status: 404 });
     }
 
@@ -49,6 +53,10 @@ export async function action({ request }) {
     const orderDetails = await getOrderTransaction(admin, orderID);
     
     if (!orderDetails?.mandateId) {
+       await syncLogger.failed({
+        message: `No saved card found for offline charging on this order: ${shopifyOrderName}`,
+        requestPayload: payload,
+      }).catch(err => console.error("[Logger Error] Failed to log userErrors:", err));
       return json({ success: false, message: "No saved payment mandate found on this order for offline charging." }, { status: 400 });
     }
 
@@ -81,6 +89,9 @@ export async function action({ request }) {
     let initialPaymentReferenceId = resultData?.paymentReferenceId;
     let jobResolvedSuccessfully = false;
     let paymentStatusDetails = null;
+     const db = await orderRepository.findByName(shopifyOrderName);
+      const netsuiteCustomerId = db.netsuiteCompanyId; 
+      const netsuiteOrderId = db.netsuiteOrderId; 
 
     if (initialPaymentReferenceId) {
       console.log(`[Payment Capture] Tracking Payment Reference ID: ${initialPaymentReferenceId}`);
@@ -107,7 +118,6 @@ export async function action({ request }) {
           
           console.log(`[Payment Capture] Polled Order Payment Status: ${currentStatus}`);
 
-          // ✅ यहाँ "PURCHASED" स्टेटस भी शामिल है
           if (
             currentStatus === "SUCCESS" || 
             currentStatus === "CAPTURED" || 
@@ -120,6 +130,10 @@ export async function action({ request }) {
 
           if (currentStatus === "ERROR" || currentStatus === "FAILED") {
             console.error(`[Payment Capture] Payment explicitly failed: ${paymentStatusDetails?.errorMessage}`);
+          
+            setTimeout(async function () {
+   await updateNetSuiteOrderChargeDecline(netsuiteOrderId)
+}, 3000);
             break; 
           }
         } catch (pollError) {
@@ -159,9 +173,7 @@ export async function action({ request }) {
 
     // ---  NETSUITE CUSTOMER DEPOSIT BLOCK START ---
     try {
-      const db = await orderRepository.findByName(shopifyOrderName);
-      const netsuiteCustomerId = db.netsuiteCompanyId; 
-      const netsuiteOrderId = db.netsuiteOrderId; 
+     
 
       if (typeof netsuite !== "undefined" && netsuiteCustomerId && netsuiteOrderId) {
         const depositPayload = {
@@ -236,7 +248,6 @@ export async function action({ request }) {
       responsePayload: captureResponse?.data || {}
     }).catch(err => console.error("[Logger Error] Failed to log final success:", err));
 
-    // ✅ एरर फिक्स: capturedAmount को Number(amount) में बदला गया है ताकि यह Float/Decimal की तरह सेव हो
     await paymentRepository.createPaymentSync({
       netsuiteOrderId: orderSync.netsuiteOrderId,
       shopifyOrderId: orderSync.shopifyOrderId,
