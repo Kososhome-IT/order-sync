@@ -180,7 +180,10 @@ export async function action({ request }) {
           customer: { id: netsuiteCustomerId.toString() },
           salesOrder: { id: netsuiteOrderId.toString() },
           payment: Number(amount),
-          memo: `Automated Deposit via Shopify Capture. Ref: ${finalPaymentReferenceId}`
+          memo: `Automated Deposit via Shopify Capture. Ref: ${finalPaymentReferenceId}`,
+          custbody_ch_web_payment_token_ref:`${finalPaymentReferenceId}`,
+          cseg1:{id:'3'}, // busness unit set to furniture as in erly discussion it confirm it will be always furniture
+          paymentoption:{ id:"224151"} // id of option shopify payment in netsuite customer deposite record paymetn options 
         };
 
         const depositResult = await netsuite.createCustomerDeposit(depositPayload);
