@@ -1,7 +1,7 @@
 import { json } from "../utils/jsonResponse";
 import crypto from "node:crypto";
 import { getAdminClient } from "../shopify.server";
-import { getOrderTransaction, createMandatePayment } from "../services/shopify/payment.service";
+import { getOrderTransaction, createMandatePayment, toShopifyOrderGid } from "../services/shopify/payment.service";
 import { netsuite } from "../services/netsuite/netsuite.server";
 import { sleep, getNetSuiteErrorMessage, updateNetSuiteOrderTypeWithRetry,updateNetSuiteOrderChargeDecline } from "../utils/payment.utils";
 import { orderRepository } from "../repositories/order.repository";
@@ -49,7 +49,7 @@ export async function action({ request }) {
       return json({ success: false, message: "OrderSync record not found" }, { status: 404 });
     }
 
-    const orderID = `gid://shopify/Order/${orderSync.shopifyOrderId}`;
+    const orderID = toShopifyOrderGid(orderSync.shopifyOrderId);
     const orderDetails = await getOrderTransaction(admin, orderID);
     
     if (!orderDetails?.mandateId) {
