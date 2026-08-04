@@ -1,11 +1,25 @@
-/**
- * Fetches Shopify order and checks for a valid saved payment mandate.
- * @param {object} admin - Shopify Admin API Client
- * @param {string} orderID - The full Shopify Order Graphql ID (gid://shopify/Order/xxxx)
- */
-export async function getOrderTransaction(admin, orderID) {
-  // FIXED: Removed undefined shopifyOrderName to prevent ReferenceError
-  console.log(`[Payment Service] Fetching order details for ID: ${orderID}`);
+const ORDER_LOOKUP_RETRY_DELAYS_MS = [0, 2000, 5000, 10000, 20000];
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function toShopifyOrderGid(orderID) {
+  const value = String(orderID || "").trim();
+
+  if (!value) {
+    throw new Error("Shopify order ID is required");
+  }
+
+  if (value.startsWith("gid://shopify/Order/")) {
+    return value;
+  }
+
+  return `gid://shopify/Order/${value}`;
+}
+
+async function fetchOrderPaymentMandate(admin, orderID) {
+  const normalizedOrderID = toShopifyOrderGid(orderID);
 
   const orderResponse = await admin.request(
     `query getOrderPaymentMandate($orderId: ID!) {
@@ -19,21 +33,60 @@ export async function getOrderTransaction(admin, orderID) {
       }
     }`,
     {
-      variables: { "orderId": orderID },
+      variables: { orderId: normalizedOrderID },
     }
   );
 
   console.log("RAW SHOPIFY RESPONSE for order:", JSON.stringify(orderResponse, null, 2));
-  
-  // FIXED: Corrected response data path mapping from single order query
-  const order = orderResponse?.data?.order;
 
-  if (!order) {
-    console.error(`[Payment Service] ERROR: Order not found in Shopify for ID: ${orderID}`);
-    throw new Error(`Order not found: ${orderID}`);
+  return {
+    order: orderResponse?.data?.order,
+    orderID: normalizedOrderID,
+    orderResponse,
+  };
+}
+
+/**
+ * Fetches Shopify order and checks for a valid saved payment mandate.
+ * @param {object} admin - Shopify Admin API Client
+ * @param {string} orderID - The full Shopify Order Graphql ID (gid://shopify/Order/xxxx)
+ */
+export async function getOrderTransaction(admin, orderID) {
+  const normalizedOrderID = toShopifyOrderGid(orderID);
+
+  console.log(`[Payment Service] Fetching order details for ID: ${normalizedOrderID}`);
+
+  let order = null;
+
+  for (let attempt = 0; attempt < ORDER_LOOKUP_RETRY_DELAYS_MS.length; attempt += 1) {
+    const delayMs = ORDER_LOOKUP_RETRY_DELAYS_MS[attempt];
+
+    if (delayMs > 0) {
+      console.log(
+        `[Payment Service] Waiting ${delayMs}ms before retry ${attempt + 1} for order ${normalizedOrderID}`
+      );
+      await sleep(delayMs);
+    }
+
+    const result = await fetchOrderPaymentMandate(admin, normalizedOrderID);
+    order = result.order;
+
+    if (order) {
+      break;
+    }
+
+    console.warn(
+      `[Payment Service] Shopify returned no order for ${normalizedOrderID} on attempt ${attempt + 1}/${ORDER_LOOKUP_RETRY_DELAYS_MS.length}`
+    );
   }
 
-  console.log(`[Payment Service] Order Found ID: ${orderID}, Status: ${order.displayFinancialStatus}`);
+  // FIXED: Corrected response data path mapping from single order query
+  if (!order) {
+    console.error(`[Payment Service] ERROR: Order not found in Shopify for ID: ${normalizedOrderID}`);
+    throw new Error(`Order not found: ${normalizedOrderID}`);
+  }
+
+  console.log(`[Payment Service] Order Found ID: ${normalizedOrderID}, Status: ${order.displayFinancialStatus}`);
 
   // Checks if the order is already paid to prevent double charging
   if (order.displayFinancialStatus === "PAID") {
@@ -65,6 +118,7 @@ export async function getOrderTransaction(admin, orderID) {
  * @returns {Promise<Object>} The raw GraphQL mutation response from Shopify
  */
 export async function createMandatePayment(admin, { orderId, mandateId, idempotencyKey, amount, currencyCode = "USD" }) {
+  const normalizedOrderId = toShopifyOrderGid(orderId);
   const mutation = `#graphql
     mutation OrderCreateMandatePayment($amount: MoneyInput!, $autoCapture: Boolean!, $id: ID!, $idempotencyKey: String!, $mandateId: ID!) {
       orderCreateMandatePayment(amount: $amount, autoCapture: $autoCapture, id: $id, idempotencyKey: $idempotencyKey, mandateId: $mandateId) {
@@ -83,7 +137,7 @@ export async function createMandatePayment(admin, { orderId, mandateId, idempote
 
   const response = await admin.request(mutation, {
     variables: {
-      id: orderId,
+      id: normalizedOrderId,
       mandateId: mandateId,
       idempotencyKey: idempotencyKey,
       autoCapture: true,

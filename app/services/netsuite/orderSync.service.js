@@ -7,7 +7,7 @@ import { sessionStorage } from "../../shopify.server";
 import { createAdminApiClient } from "@shopify/admin-api-client";
 
 
-export async function processShopifyOrder(orderSyncId) {
+export async function processShopifyOrder(orderSyncId, options = {}) {
     let payload = null;
     const SHOP_DOMAIN = process.env.SHOP;
   const API_VERSION = "2025-07";
@@ -56,12 +56,12 @@ export async function processShopifyOrder(orderSyncId) {
       `OrderSync not found: ${orderSyncId}`
     );
   }
-  //  featching raw payload of order from  databse
-  const shopifyOrder = sync.webhookPayload;
+  // Use fresh Shopify payload when retrying, otherwise use the original webhook payload.
+  const shopifyOrder = options.shopifyOrder || sync.webhookPayload;
 
 if (!shopifyOrder) {
   throw new Error(
-    `Webhook payload missing for orderSyncId ${orderSyncId}`
+    `Shopify order payload missing for orderSyncId ${orderSyncId}`
   );
 }
   // const shopifyPaymentTerm = shopifyOrder.payment_terms?.payment_terms_name;
@@ -71,6 +71,11 @@ if (!shopifyOrder) {
   const nsLines = [];
 
   for (const lineItem of shopifyOrder.line_items) {
+    const quantity = Number(lineItem.current_quantity ?? lineItem.quantity ?? 0);
+
+    if (quantity <= 0) {
+      continue;
+    }
 
     const nsItem = await findItemBySku(lineItem.sku); // featching inventory record using sku
 
@@ -84,7 +89,7 @@ if (!shopifyOrder) {
       item: {
         id: nsItem.id,
       },
-      quantity: lineItem.quantity,
+      quantity,
       rate: Number(lineItem.price),
     });
   }

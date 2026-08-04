@@ -1,7 +1,8 @@
 import prisma from "../db.server";
 import { json } from "../utils/jsonResponse";
 import { processShopifyOrder } from "../services/netsuite/orderSync.service";
-import { authenticate } from "../shopify.server";
+import { authenticate, sessionStorage } from "../shopify.server";
+import { fetchShopifyOrderById } from "../services/shopify/order.service";
 
 export async function action({ request }) {
   await authenticate.admin(request);
@@ -41,18 +42,49 @@ console.log(
       );
     }
 
+    if (!orderSync.shopifyOrderId) {
+      return json(
+        {
+          success: false,
+          error: "Shopify order ID missing for retry",
+        },
+        400
+      );
+    }
+
+    const shopDomain = process.env.SHOP;
+    const session = await sessionStorage.loadSession(`offline_${shopDomain}`);
+
+    if (!session) {
+      return json(
+        {
+          success: false,
+          error: "Offline Shopify session not found",
+        },
+        400
+      );
+    }
+
+    const freshShopifyOrder = await fetchShopifyOrderById({
+      shop: shopDomain,
+      accessToken: session.accessToken,
+      orderId: orderSync.shopifyOrderId,
+    });
+
     await prisma.orderSync.update({
       where: {
         id: orderSync.id,
       },
       data: {
         status: "PROCESSING",
+        webhookPayload: freshShopifyOrder,
       },
     });
 
     const netsuiteOrderId =
       await processShopifyOrder(
-        orderSync.id
+        orderSync.id,
+        { shopifyOrder: freshShopifyOrder }
       );
 console.log(
   "RETRY SUCCESS",
