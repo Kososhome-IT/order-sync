@@ -85,7 +85,7 @@ define(['N/record', 'N/https', 'N/search', 'N/log'], (record, https, search, log
                     "amount": depAmtToChargeOnShopify,
                     "custbody_wmsse_ordertype": newWmsOrderType,
                     "transactionType": orderStatus,
-                    "salesOrderId":soId
+                    "netsuiteSalesOrderId": soId
                 }
                 log.debug('paymentCapture', paymentCapture);
 
