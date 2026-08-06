@@ -23,7 +23,7 @@ export async function action({ request }) {
       return json({ success: false, message: "Invalid JSON format in request body" }, { status: 400 });
     }
 
-    const { shopifyOrderName, amount, custbody_wmsse_ordertype, shop } = payload;
+    const { shopifyOrderName, amount,netsuiteSalesOrderId, custbody_wmsse_ordertype, shop } = payload;
     console.log(`[Payment Capture] Incoming request for Order: ${shopifyOrderName}, Amount: ${amount}`);
 
     const targetShop = shop || process.env.SHOP;
@@ -91,7 +91,7 @@ export async function action({ request }) {
     let paymentStatusDetails = null;
      const db = await orderRepository.findByName(shopifyOrderName);
       const netsuiteCustomerId = db.netsuiteCompanyId; 
-      const netsuiteOrderId = db.netsuiteOrderId; 
+      const netsuiteOrderId = netsuiteSalesOrderId; 
 
     if (initialPaymentReferenceId) {
       console.log(`[Payment Capture] Tracking Payment Reference ID: ${initialPaymentReferenceId}`);
