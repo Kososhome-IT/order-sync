@@ -7,9 +7,9 @@ import { sleep, getNetSuiteErrorMessage, updateNetSuiteOrderTypeWithRetry,update
 import { orderRepository } from "../repositories/order.repository";
 import { paymentRepository } from "../repositories/payment.repository";
 import { syncLogger } from "../repositories/logger.service";
+import { NETSUITE_CONFIG, PAYMENT_CONFIG, SHOPIFY_CONFIG } from "../constants/integrationConfig";
 
-const MAX_JOB_POLL_ATTEMPTS = 6;     
-const JOB_POLL_DELAY_MS = 20000;    
+const { customerDeposit: NETSUITE_CUSTOMER_DEPOSIT } = NETSUITE_CONFIG;
 
 export async function action({ request }) {
   let orderSync = null;
@@ -36,7 +36,7 @@ export async function action({ request }) {
       return json({ success: false, message: "shopifyOrderName and amount are required" }, { status: 400 });
     }
 
-    if (custbody_wmsse_ordertype !== "Shopify Ready To Charge") {
+    if (custbody_wmsse_ordertype !== SHOPIFY_CONFIG.order.readyToChargeTypeName) {
       return json({ success: false, message: "Order type does not match criteria for automated charging." }, { status: 400 });
     }
 
@@ -96,9 +96,9 @@ export async function action({ request }) {
     if (initialPaymentReferenceId) {
       console.log(`[Payment Capture] Tracking Payment Reference ID: ${initialPaymentReferenceId}`);
       
-      for (let pollAttempt = 1; pollAttempt <= MAX_JOB_POLL_ATTEMPTS; pollAttempt++) {
-        console.log(`[Payment Capture] Polling via orderPaymentStatus, attempt ${pollAttempt}/${MAX_JOB_POLL_ATTEMPTS}. Waiting 20s...`);
-        await sleep(JOB_POLL_DELAY_MS);
+      for (let pollAttempt = 1; pollAttempt <= PAYMENT_CONFIG.jobPolling.maxAttempts; pollAttempt++) {
+        console.log(`[Payment Capture] Polling via orderPaymentStatus, attempt ${pollAttempt}/${PAYMENT_CONFIG.jobPolling.maxAttempts}. Waiting ${PAYMENT_CONFIG.jobPolling.delayMs}ms...`);
+        await sleep(PAYMENT_CONFIG.jobPolling.delayMs);
 
         try {
           const paymentStatusResponse = await admin.request(
@@ -142,7 +142,7 @@ export async function action({ request }) {
           if (orderSync?.id) {
             await syncLogger.failed({
               orderSyncId: orderSync.id,
-              message: `Polling attempt ${pollAttempt}/${MAX_JOB_POLL_ATTEMPTS} failed with network/API error: ${pollError.message}`,
+              message: `Polling attempt ${pollAttempt}/${PAYMENT_CONFIG.jobPolling.maxAttempts} failed with network/API error: ${pollError.message}`,
               requestPayload: payload,
               responsePayload: { error: pollError?.toString() }
             }).catch(err => console.error("[Logger Error] Failed to log polling exception:", err));
@@ -181,9 +181,9 @@ export async function action({ request }) {
           salesOrder: { id: netsuiteOrderId.toString() },
           payment: Number(amount),
           memo: `Automated Deposit via Shopify Capture. Ref: ${finalPaymentReferenceId}`,
-          custbody_ch_web_payment_token_ref:`${finalPaymentReferenceId}`,
-          cseg1:{id:'3'}, // busness unit set to furniture as in erly discussion it confirm it will be always furniture
-          paymentoption:{ id:"224151"} // id of option shopify payment in netsuite customer deposite record paymetn options 
+          [NETSUITE_CUSTOMER_DEPOSIT.fields.webPaymentTokenRef]:`${finalPaymentReferenceId}`,
+          [NETSUITE_CUSTOMER_DEPOSIT.fields.businessUnit]:{id:NETSUITE_CUSTOMER_DEPOSIT.businessUnitId}, // busness unit set to furniture as in erly discussion it confirm it will be always furniture
+          [NETSUITE_CUSTOMER_DEPOSIT.fields.paymentOption]:{ id:NETSUITE_CUSTOMER_DEPOSIT.paymentOptionId} // id of option shopify payment in netsuite customer deposite record paymetn options 
         };
 
         const depositResult = await netsuite.createCustomerDeposit(depositPayload);

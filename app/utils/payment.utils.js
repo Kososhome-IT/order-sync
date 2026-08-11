@@ -1,8 +1,7 @@
-const NETSUITE_READY_TO_WAVE_ID = "2";
-const NETSUITE_CHARGE_DECLINE_ID = "12";
-const NETSUITE_ORDER_UPDATE_RETRY_DELAYS_MS = [0, 2000, 5000, 10000];
-const NETSUITE_DEPOSIT_AMOUNT_CHARGE_FIELD = "custbody_ch_deposit_amount_charge_shop";
 import { netsuite } from "../services/netsuite/netsuite.server";
+import { NETSUITE_CONFIG, PAYMENT_CONFIG } from "../constants/integrationConfig";
+
+const { salesOrder: NETSUITE_SALES_ORDER } = NETSUITE_CONFIG;
 
 export function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -22,8 +21,8 @@ export function isRecordChangedError(result) {
 export async function updateNetSuiteOrderTypeWithRetry(netsuiteOrderId) {
   let lastResult = null;
 
-  for (let attempt = 0; attempt < NETSUITE_ORDER_UPDATE_RETRY_DELAYS_MS.length; attempt += 1) {
-    const delayMs = NETSUITE_ORDER_UPDATE_RETRY_DELAYS_MS[attempt];
+  for (let attempt = 0; attempt < PAYMENT_CONFIG.netsuiteOrderUpdateRetryDelaysMs.length; attempt += 1) {
+    const delayMs = PAYMENT_CONFIG.netsuiteOrderUpdateRetryDelaysMs[attempt];
 
     if (delayMs > 0) {
       console.log(`[NetSuite Update Order] Waiting ${delayMs}ms before retry ${attempt + 1} for Sales Order ${netsuiteOrderId}`);
@@ -31,10 +30,10 @@ export async function updateNetSuiteOrderTypeWithRetry(netsuiteOrderId) {
     }
 
     lastResult = await netsuite.updateOrderFields(netsuiteOrderId, {
-      custbody_wmsse_ordertype: {
-        id: NETSUITE_READY_TO_WAVE_ID,
+      [NETSUITE_SALES_ORDER.fields.orderType]: {
+        id: NETSUITE_SALES_ORDER.orderTypeIds.readyToWave,
       },
-      [NETSUITE_DEPOSIT_AMOUNT_CHARGE_FIELD]: null,
+      [NETSUITE_SALES_ORDER.fields.depositAmountCharge]: null,
     });
 
     if (lastResult.success || !isRecordChangedError(lastResult)) {
@@ -42,13 +41,13 @@ export async function updateNetSuiteOrderTypeWithRetry(netsuiteOrderId) {
     }
   }
 
-  return { ...lastResult, attempts: NETSUITE_ORDER_UPDATE_RETRY_DELAYS_MS.length };
+  return { ...lastResult, attempts: PAYMENT_CONFIG.netsuiteOrderUpdateRetryDelaysMs.length };
 }
 
 export async function updateNetSuiteOrderChargeDecline(netsuiteOrderId) {
      await netsuite.updateOrderFields(netsuiteOrderId, {
-      custbody_wmsse_ordertype: {
-        id: NETSUITE_CHARGE_DECLINE_ID,
+      [NETSUITE_SALES_ORDER.fields.orderType]: {
+        id: NETSUITE_SALES_ORDER.orderTypeIds.chargeDecline,
       }
     });
   return {  };

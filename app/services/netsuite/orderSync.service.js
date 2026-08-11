@@ -5,6 +5,9 @@ import { findCompanyByShopifyId } from "./company.service";
 import { findItemBySku, } from "./inventory.service";
 import { sessionStorage } from "../../shopify.server";
 import { createAdminApiClient } from "@shopify/admin-api-client";
+import { NETSUITE_CONFIG, SHOPIFY_CONFIG } from "../../constants/integrationConfig";
+
+const { salesOrder: NETSUITE_SALES_ORDER } = NETSUITE_CONFIG;
 
 function normalizeAddressValue(value) {
   return String(value || "")
@@ -39,7 +42,7 @@ function buildShopifyShippingAddress(shopifyAddress) {
       ? { country: { id: shopifyAddress.country_code } }
       : {}),
     ...(shopifyAddress.phone ? { addrPhone: shopifyAddress.phone } : {}),
-    isResidential: false,
+    isResidential: NETSUITE_SALES_ORDER.customShippingAddress.isResidential,
   };
 }
 
@@ -108,7 +111,7 @@ async function updateCustomShippingAddressIfNeeded(netsuiteOrderId, shopifyShipp
 
   const shippingAddress = buildShopifyShippingAddress(shopifyShippingAddress);
   const updateResult = await netsuite.updateOrderFields(netsuiteOrderId, {
-    shipAddressList: { id: "-2" },
+    shipAddressList: { id: NETSUITE_SALES_ORDER.customShippingAddress.shipAddressListId },
     shippingAddress,
   });
 
@@ -143,7 +146,7 @@ async function updateCustomShippingAddressIfNeeded(netsuiteOrderId, shopifyShipp
 export async function processShopifyOrder(orderSyncId, options = {}) {
     let payload = null;
     const SHOP_DOMAIN = process.env.SHOP;
-  const API_VERSION = "2025-07";
+  const API_VERSION = SHOPIFY_CONFIG.apiVersions.adminGraphql;
   const session = await sessionStorage.loadSession(`offline_${SHOP_DOMAIN}`);
   if (!session) {
   throw new Error(
@@ -163,14 +166,14 @@ export async function processShopifyOrder(orderSyncId, options = {}) {
     },
   });
   const NETSUITE_DEFAULTS = {
-  customFormId: "216",
-  subsidiaryId: "2",
-  termsId: "2",
-  accountSpecId: "562637",
-  orderSourceId: "8",
-  orderAttributeId: "54",
-  segmentId: "3",
-  custbody_wmsse_ordertype:"7"
+  customFormId: NETSUITE_SALES_ORDER.customFormId,
+  subsidiaryId: NETSUITE_SALES_ORDER.subsidiaryId,
+  termsId: NETSUITE_SALES_ORDER.termsId,
+  accountSpecId: NETSUITE_SALES_ORDER.accountSpecId,
+  orderSourceId: NETSUITE_SALES_ORDER.orderSourceId,
+  orderAttributeId: NETSUITE_SALES_ORDER.orderAttributeId,
+  segmentId: NETSUITE_SALES_ORDER.segmentId,
+  custbody_wmsse_ordertype: NETSUITE_SALES_ORDER.orderTypeIds.readyToCharge
 };
 // const PAYMENT_TERM_MAP = {
 //   "Due on fulfilment": "null",
@@ -254,7 +257,7 @@ const shippingAmount =
 //   shopifyOrder
 //     ?.shipping_lines?.[0]
 //     ?.title || null;
-const shippingMethod = {id : "26506"}
+const shippingMethod = {id : NETSUITE_SALES_ORDER.shippingMethodId}
 
   // const customer = await findCustomerByEmail(customerEmail);
 
@@ -271,16 +274,16 @@ const shippingMethod = {id : "26506"}
     entity: { id: company.netsuiteCompanyId },
     subsidiary: { id:  NETSUITE_DEFAULTS.subsidiaryId, },
     otherRefNum: shopifyOrder.po_number || shopifyOrder.name, 
-    custbody_ch_om_web_order_number:otherRefNumDummy,
-    custbody_wmsse_ordertype:{id:NETSUITE_DEFAULTS.custbody_wmsse_ordertype},
-    custbody_ch_so_acc_spec: { id: "562637" },
+    [NETSUITE_SALES_ORDER.fields.webOrderNumber]:otherRefNumDummy,
+    [NETSUITE_SALES_ORDER.fields.orderType]:{id:NETSUITE_DEFAULTS.custbody_wmsse_ordertype},
+    [NETSUITE_SALES_ORDER.fields.accountSpec]: { id: NETSUITE_DEFAULTS.accountSpecId },
     shippingcost:shippingAmount,
     shipmethod:shippingMethod,
-    custbody_ch_om_ordersource: { id: NETSUITE_DEFAULTS.orderSourceId },
-    custbody_ch_ord_attribute: {
-      items: [{ id: "54" }],
+    [NETSUITE_SALES_ORDER.fields.orderSource]: { id: NETSUITE_DEFAULTS.orderSourceId },
+    [NETSUITE_SALES_ORDER.fields.orderAttribute]: {
+      items: [{ id: NETSUITE_DEFAULTS.orderAttributeId }],
     },
-    cseg1: { id: NETSUITE_DEFAULTS.segmentId },
+    [NETSUITE_SALES_ORDER.fields.businessUnit]: { id: NETSUITE_DEFAULTS.segmentId },
     item: {
       items: nsLines,
     }

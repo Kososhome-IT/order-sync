@@ -12,6 +12,7 @@ import {
   EVENT_TYPE,
   STATUS,
 } from "../constants/orderSync";
+import { SHOPIFY_CONFIG } from "../constants/integrationConfig";
 
 export async function action({ request }) {
   try {
@@ -24,7 +25,7 @@ export async function action({ request }) {
     const shopifyOrderId = String(payload.id);
     const shopifyOrderName = String(payload.name);
     const SHOP_DOMAIN = process.env.SHOP;
-    const API_VERSION = "2025-07";
+    const API_VERSION = SHOPIFY_CONFIG.apiVersions.adminGraphql;
 
     console.log(
       "WEBHOOK RECEIVED",

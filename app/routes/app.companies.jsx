@@ -3,6 +3,7 @@ import { json } from "../utils/jsonResponse";
 import { useLoaderData } from "react-router";
 import { useFetcher }
   from "react-router";
+import { SHOPIFY_CONFIG } from "../constants/integrationConfig";
 export async function loader() {
   const companies =
     await prisma.companyMapping.findMany({
@@ -47,7 +48,7 @@ export async function action() {
         SHOP_DOMAIN,
 
       apiVersion:
-        "2025-07",
+        SHOPIFY_CONFIG.apiVersions.adminGraphql,
 
       accessToken:
         session.accessToken,

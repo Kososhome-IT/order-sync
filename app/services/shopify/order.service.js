@@ -1,4 +1,4 @@
-const SHOPIFY_REST_API_VERSION = "2026-04";
+import { SHOPIFY_CONFIG } from "../../constants/integrationConfig";
 
 function normalizeShopifyOrderId(orderId) {
   const value = String(orderId || "").trim();
@@ -20,7 +20,7 @@ export async function fetchShopifyOrderById({ shop, accessToken, orderId }) {
   }
 
   const normalizedOrderId = normalizeShopifyOrderId(orderId);
-  const url = `https://${shop}/admin/api/${SHOPIFY_REST_API_VERSION}/orders/${normalizedOrderId}.json`;
+  const url = `https://${shop}/admin/api/${SHOPIFY_CONFIG.apiVersions.adminRest}/orders/${normalizedOrderId}.json`;
   const response = await fetch(url, {
     method: "GET",
     headers: {

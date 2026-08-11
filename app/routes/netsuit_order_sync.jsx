@@ -6,12 +6,13 @@ import { getVariantIdBySKU } from "../services/shopify/product.service"
 import { findCompanyByNetSuiteId } from "../services/shopify/company.service"
 import { findCustomerByEmail } from "../services/shopify/customer.service"
 import { SYSTEM, DIRECTION, EVENT_TYPE, STATUS, } from "../constants/orderSync";
+import { SHOPIFY_CONFIG } from "../constants/integrationConfig";
 
 
 
 export async function action({ request }) {
   const SHOP_DOMAIN = process.env.SHOP;
-  const API_VERSION = "2025-07";
+  const API_VERSION = SHOPIFY_CONFIG.apiVersions.adminGraphql;
   let payload;
   const lineItems = [];
   const validationErrors = [];
