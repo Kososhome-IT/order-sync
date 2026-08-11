@@ -12,6 +12,7 @@ import {
   EVENT_TYPE,
   STATUS,
 } from "../constants/orderSync";
+import { SHOPIFY_CONFIG } from "../constants/integrationConfig";
 
 
 function  buildOrderSyncLookup(payload) {
@@ -105,7 +106,7 @@ export async function action({ request }) {
 
     const admin = createAdminApiClient({
       storeDomain: shopDomain,
-      apiVersion: "2025-07",
+      apiVersion: SHOPIFY_CONFIG.apiVersions.adminGraphql,
       accessToken: session.accessToken,
     });
 

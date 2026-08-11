@@ -7,6 +7,7 @@ import {
 import { createAdminApiClient } from "@shopify/admin-api-client";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
+import { SHOPIFY_CONFIG } from "./constants/integrationConfig";
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -36,7 +37,7 @@ export async function getAdminClient(shopDomain) {
 
   return createAdminApiClient({
     storeDomain: shopDomain,
-    apiVersion: "2026-04", 
+    apiVersion: SHOPIFY_CONFIG.apiVersions.adminRest, 
     accessToken: session.accessToken,
   });
 }

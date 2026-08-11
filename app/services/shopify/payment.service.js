@@ -1,4 +1,4 @@
-const ORDER_LOOKUP_RETRY_DELAYS_MS = [0, 2000, 5000, 10000, 20000];
+import { PAYMENT_CONFIG } from "../../constants/integrationConfig";
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -58,8 +58,8 @@ export async function getOrderTransaction(admin, orderID) {
 
   let order = null;
 
-  for (let attempt = 0; attempt < ORDER_LOOKUP_RETRY_DELAYS_MS.length; attempt += 1) {
-    const delayMs = ORDER_LOOKUP_RETRY_DELAYS_MS[attempt];
+  for (let attempt = 0; attempt < PAYMENT_CONFIG.shopifyOrderLookupRetryDelaysMs.length; attempt += 1) {
+    const delayMs = PAYMENT_CONFIG.shopifyOrderLookupRetryDelaysMs[attempt];
 
     if (delayMs > 0) {
       console.log(
@@ -76,7 +76,7 @@ export async function getOrderTransaction(admin, orderID) {
     }
 
     console.warn(
-      `[Payment Service] Shopify returned no order for ${normalizedOrderID} on attempt ${attempt + 1}/${ORDER_LOOKUP_RETRY_DELAYS_MS.length}`
+      `[Payment Service] Shopify returned no order for ${normalizedOrderID} on attempt ${attempt + 1}/${PAYMENT_CONFIG.shopifyOrderLookupRetryDelaysMs.length}`
     );
   }
 

@@ -5,12 +5,148 @@ import { findCompanyByShopifyId } from "./company.service";
 import { findItemBySku, } from "./inventory.service";
 import { sessionStorage } from "../../shopify.server";
 import { createAdminApiClient } from "@shopify/admin-api-client";
+import { NETSUITE_CONFIG, SHOPIFY_CONFIG } from "../../constants/integrationConfig";
+
+const { salesOrder: NETSUITE_SALES_ORDER } = NETSUITE_CONFIG;
+
+function normalizeAddressValue(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+function buildShopifyShippingAddress(shopifyAddress) {
+  if (!shopifyAddress) {
+    return null;
+  }
+
+  const firstName = shopifyAddress.first_name || "";
+  const lastName = shopifyAddress.last_name || "";
+  const addressee =
+    shopifyAddress.name ||
+    [firstName, lastName].filter(Boolean).join(" ") ||
+    shopifyAddress.company;
+
+  return {
+    ...(addressee ? { addressee } : {}),
+    ...(shopifyAddress.company ? { attention: shopifyAddress.company } : {}),
+    ...(shopifyAddress.address1 ? { addr1: shopifyAddress.address1 } : {}),
+    ...(shopifyAddress.address2 ? { addr2: shopifyAddress.address2 } : {}),
+    ...(shopifyAddress.city ? { city: shopifyAddress.city } : {}),
+    ...(shopifyAddress.province_code || shopifyAddress.province
+      ? { state: shopifyAddress.province_code || shopifyAddress.province }
+      : {}),
+    ...(shopifyAddress.zip ? { zip: shopifyAddress.zip } : {}),
+    ...(shopifyAddress.country_code
+      ? { country: { id: shopifyAddress.country_code } }
+      : {}),
+    ...(shopifyAddress.phone ? { addrPhone: shopifyAddress.phone } : {}),
+    isResidential: NETSUITE_SALES_ORDER.customShippingAddress.isResidential,
+  };
+}
+
+function getAddressCountry(address) {
+  return address?.country?.id || address?.country?.refName || address?.country;
+}
+
+function addressesMatch(shopifyAddress, netsuiteAddress) {
+  if (!shopifyAddress || !netsuiteAddress) {
+    return false;
+  }
+
+  const shopifyCompare = {
+    addr1: shopifyAddress.address1,
+    addr2: shopifyAddress.address2,
+    city: shopifyAddress.city,
+    state: shopifyAddress.province_code || shopifyAddress.province,
+    zip: shopifyAddress.zip,
+    country: shopifyAddress.country_code,
+  };
+  const netsuiteCompare = {
+    addr1: netsuiteAddress.addr1,
+    addr2: netsuiteAddress.addr2,
+    city: netsuiteAddress.city,
+    state: netsuiteAddress.state,
+    zip: netsuiteAddress.zip,
+    country: getAddressCountry(netsuiteAddress),
+  };
+
+  return Object.keys(shopifyCompare).every(
+    (key) => normalizeAddressValue(shopifyCompare[key]) === normalizeAddressValue(netsuiteCompare[key])
+  );
+}
+
+async function updateCustomShippingAddressIfNeeded(netsuiteOrderId, shopifyShippingAddress) {
+  if (!shopifyShippingAddress) {
+    console.warn(
+      `[Shipping Address] Skipped custom shipping address update for Sales Order ${netsuiteOrderId}: Shopify shipping address missing.`
+    );
+    return null;
+  }
+
+  const netsuiteOrder = await netsuite.getOrder(netsuiteOrderId);
+
+  if (!netsuiteOrder.success) {
+    const message =
+      netsuiteOrder.data?.["o:errorDetails"]
+        ?.map((error) => error.detail)
+        ?.join(", ") ||
+      `Failed to fetch NetSuite Sales Order ${netsuiteOrderId} for shipping address check`;
+
+    console.error(`[Shipping Address] ${message}`);
+
+    return {
+      updated: false,
+      reason: "FETCH_FAILED",
+      error: message,
+      responsePayload: netsuiteOrder.data || {},
+    };
+  }
+
+  if (addressesMatch(shopifyShippingAddress, netsuiteOrder.data?.shippingAddress)) {
+    console.log(`[Shipping Address] Shopify and NetSuite shipping address match for Sales Order ${netsuiteOrderId}.`);
+    return { updated: false, reason: "MATCHED" };
+  }
+
+  const shippingAddress = buildShopifyShippingAddress(shopifyShippingAddress);
+  const updateResult = await netsuite.updateOrderFields(netsuiteOrderId, {
+    shipAddressList: { id: NETSUITE_SALES_ORDER.customShippingAddress.shipAddressListId },
+    shippingAddress,
+  });
+
+  if (!updateResult.success) {
+    const message =
+      updateResult.data?.["o:errorDetails"]
+        ?.map((error) => error.detail)
+        ?.join(", ") ||
+      `Failed to update custom shipping address for NetSuite Sales Order ${netsuiteOrderId}`;
+
+    console.error(`[Shipping Address] ${message}`);
+
+    return {
+      updated: false,
+      reason: "UPDATE_FAILED",
+      error: message,
+      requestPayload: { shippingAddress },
+      responsePayload: updateResult.data || {},
+    };
+  }
+
+  console.log(`[Shipping Address] Custom shipping address updated for Sales Order ${netsuiteOrderId}.`);
+
+  return {
+    updated: true,
+    requestPayload: { shippingAddress },
+    responsePayload: updateResult,
+  };
+}
 
 
 export async function processShopifyOrder(orderSyncId, options = {}) {
     let payload = null;
     const SHOP_DOMAIN = process.env.SHOP;
-  const API_VERSION = "2025-07";
+  const API_VERSION = SHOPIFY_CONFIG.apiVersions.adminGraphql;
   const session = await sessionStorage.loadSession(`offline_${SHOP_DOMAIN}`);
   if (!session) {
   throw new Error(
@@ -30,14 +166,14 @@ export async function processShopifyOrder(orderSyncId, options = {}) {
     },
   });
   const NETSUITE_DEFAULTS = {
-  customFormId: "216",
-  subsidiaryId: "2",
-  termsId: "2",
-  accountSpecId: "562637",
-  orderSourceId: "8",
-  orderAttributeId: "54",
-  segmentId: "3",
-  custbody_wmsse_ordertype:"7"
+  customFormId: NETSUITE_SALES_ORDER.customFormId,
+  subsidiaryId: NETSUITE_SALES_ORDER.subsidiaryId,
+  termsId: NETSUITE_SALES_ORDER.termsId,
+  accountSpecId: NETSUITE_SALES_ORDER.accountSpecId,
+  orderSourceId: NETSUITE_SALES_ORDER.orderSourceId,
+  orderAttributeId: NETSUITE_SALES_ORDER.orderAttributeId,
+  segmentId: NETSUITE_SALES_ORDER.segmentId,
+  custbody_wmsse_ordertype: NETSUITE_SALES_ORDER.orderTypeIds.readyToCharge
 };
 // const PAYMENT_TERM_MAP = {
 //   "Due on fulfilment": "null",
@@ -121,7 +257,7 @@ const shippingAmount =
 //   shopifyOrder
 //     ?.shipping_lines?.[0]
 //     ?.title || null;
-const shippingMethod = {id : "26506"}
+const shippingMethod = {id : NETSUITE_SALES_ORDER.shippingMethodId}
 
   // const customer = await findCustomerByEmail(customerEmail);
 
@@ -138,16 +274,16 @@ const shippingMethod = {id : "26506"}
     entity: { id: company.netsuiteCompanyId },
     subsidiary: { id:  NETSUITE_DEFAULTS.subsidiaryId, },
     otherRefNum: shopifyOrder.po_number || shopifyOrder.name, 
-    custbody_ch_om_web_order_number:otherRefNumDummy,
-    custbody_wmsse_ordertype:{id:NETSUITE_DEFAULTS.custbody_wmsse_ordertype},
-    custbody_ch_so_acc_spec: { id: "562637" },
+    [NETSUITE_SALES_ORDER.fields.webOrderNumber]:otherRefNumDummy,
+    [NETSUITE_SALES_ORDER.fields.orderType]:{id:NETSUITE_DEFAULTS.custbody_wmsse_ordertype},
+    [NETSUITE_SALES_ORDER.fields.accountSpec]: { id: NETSUITE_DEFAULTS.accountSpecId },
     shippingcost:shippingAmount,
     shipmethod:shippingMethod,
-    custbody_ch_om_ordersource: { id: NETSUITE_DEFAULTS.orderSourceId },
-    custbody_ch_ord_attribute: {
-      items: [{ id: "54" }],
+    [NETSUITE_SALES_ORDER.fields.orderSource]: { id: NETSUITE_DEFAULTS.orderSourceId },
+    [NETSUITE_SALES_ORDER.fields.orderAttribute]: {
+      items: [{ id: NETSUITE_DEFAULTS.orderAttributeId }],
     },
-    cseg1: { id: NETSUITE_DEFAULTS.segmentId },
+    [NETSUITE_SALES_ORDER.fields.businessUnit]: { id: NETSUITE_DEFAULTS.segmentId },
     item: {
       items: nsLines,
     }
@@ -179,6 +315,12 @@ if (!netsuiteOrderId) {
     "Failed to extract NetSuite Order ID"
   );
 }
+const shippingAddressSync =
+  await updateCustomShippingAddressIfNeeded(
+    netsuiteOrderId,
+    shopifyOrder.shipping_address
+  );
+
   console.log("Sales Order Result:", result);
 
   console.log("NetSuite Response:", result);
@@ -194,7 +336,10 @@ if (!netsuiteOrderId) {
     message: "NetSuite Sales Order created",
 
     requestPayload: payload,
-    responsePayload: result,
+    responsePayload: {
+      ...result,
+      shippingAddressSync,
+    },
   },
 });
 await prisma.orderSync.update({
