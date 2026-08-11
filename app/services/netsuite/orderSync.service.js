@@ -6,6 +6,139 @@ import { findItemBySku, } from "./inventory.service";
 import { sessionStorage } from "../../shopify.server";
 import { createAdminApiClient } from "@shopify/admin-api-client";
 
+function normalizeAddressValue(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+function buildShopifyShippingAddress(shopifyAddress) {
+  if (!shopifyAddress) {
+    return null;
+  }
+
+  const firstName = shopifyAddress.first_name || "";
+  const lastName = shopifyAddress.last_name || "";
+  const addressee =
+    shopifyAddress.name ||
+    [firstName, lastName].filter(Boolean).join(" ") ||
+    shopifyAddress.company;
+
+  return {
+    ...(addressee ? { addressee } : {}),
+    ...(shopifyAddress.company ? { attention: shopifyAddress.company } : {}),
+    ...(shopifyAddress.address1 ? { addr1: shopifyAddress.address1 } : {}),
+    ...(shopifyAddress.address2 ? { addr2: shopifyAddress.address2 } : {}),
+    ...(shopifyAddress.city ? { city: shopifyAddress.city } : {}),
+    ...(shopifyAddress.province_code || shopifyAddress.province
+      ? { state: shopifyAddress.province_code || shopifyAddress.province }
+      : {}),
+    ...(shopifyAddress.zip ? { zip: shopifyAddress.zip } : {}),
+    ...(shopifyAddress.country_code
+      ? { country: { id: shopifyAddress.country_code } }
+      : {}),
+    ...(shopifyAddress.phone ? { addrPhone: shopifyAddress.phone } : {}),
+    isResidential: false,
+  };
+}
+
+function getAddressCountry(address) {
+  return address?.country?.id || address?.country?.refName || address?.country;
+}
+
+function addressesMatch(shopifyAddress, netsuiteAddress) {
+  if (!shopifyAddress || !netsuiteAddress) {
+    return false;
+  }
+
+  const shopifyCompare = {
+    addr1: shopifyAddress.address1,
+    addr2: shopifyAddress.address2,
+    city: shopifyAddress.city,
+    state: shopifyAddress.province_code || shopifyAddress.province,
+    zip: shopifyAddress.zip,
+    country: shopifyAddress.country_code,
+  };
+  const netsuiteCompare = {
+    addr1: netsuiteAddress.addr1,
+    addr2: netsuiteAddress.addr2,
+    city: netsuiteAddress.city,
+    state: netsuiteAddress.state,
+    zip: netsuiteAddress.zip,
+    country: getAddressCountry(netsuiteAddress),
+  };
+
+  return Object.keys(shopifyCompare).every(
+    (key) => normalizeAddressValue(shopifyCompare[key]) === normalizeAddressValue(netsuiteCompare[key])
+  );
+}
+
+async function updateCustomShippingAddressIfNeeded(netsuiteOrderId, shopifyShippingAddress) {
+  if (!shopifyShippingAddress) {
+    console.warn(
+      `[Shipping Address] Skipped custom shipping address update for Sales Order ${netsuiteOrderId}: Shopify shipping address missing.`
+    );
+    return null;
+  }
+
+  const netsuiteOrder = await netsuite.getOrder(netsuiteOrderId);
+
+  if (!netsuiteOrder.success) {
+    const message =
+      netsuiteOrder.data?.["o:errorDetails"]
+        ?.map((error) => error.detail)
+        ?.join(", ") ||
+      `Failed to fetch NetSuite Sales Order ${netsuiteOrderId} for shipping address check`;
+
+    console.error(`[Shipping Address] ${message}`);
+
+    return {
+      updated: false,
+      reason: "FETCH_FAILED",
+      error: message,
+      responsePayload: netsuiteOrder.data || {},
+    };
+  }
+
+  if (addressesMatch(shopifyShippingAddress, netsuiteOrder.data?.shippingAddress)) {
+    console.log(`[Shipping Address] Shopify and NetSuite shipping address match for Sales Order ${netsuiteOrderId}.`);
+    return { updated: false, reason: "MATCHED" };
+  }
+
+  const shippingAddress = buildShopifyShippingAddress(shopifyShippingAddress);
+  const updateResult = await netsuite.updateOrderFields(netsuiteOrderId, {
+    shipAddressList: { id: "-2" },
+    shippingAddress,
+  });
+
+  if (!updateResult.success) {
+    const message =
+      updateResult.data?.["o:errorDetails"]
+        ?.map((error) => error.detail)
+        ?.join(", ") ||
+      `Failed to update custom shipping address for NetSuite Sales Order ${netsuiteOrderId}`;
+
+    console.error(`[Shipping Address] ${message}`);
+
+    return {
+      updated: false,
+      reason: "UPDATE_FAILED",
+      error: message,
+      requestPayload: { shippingAddress },
+      responsePayload: updateResult.data || {},
+    };
+  }
+
+  console.log(`[Shipping Address] Custom shipping address updated for Sales Order ${netsuiteOrderId}.`);
+
+  return {
+    updated: true,
+    requestPayload: { shippingAddress },
+    responsePayload: updateResult,
+  };
+}
+
 
 export async function processShopifyOrder(orderSyncId, options = {}) {
     let payload = null;
@@ -179,6 +312,12 @@ if (!netsuiteOrderId) {
     "Failed to extract NetSuite Order ID"
   );
 }
+const shippingAddressSync =
+  await updateCustomShippingAddressIfNeeded(
+    netsuiteOrderId,
+    shopifyOrder.shipping_address
+  );
+
   console.log("Sales Order Result:", result);
 
   console.log("NetSuite Response:", result);
@@ -194,7 +333,10 @@ if (!netsuiteOrderId) {
     message: "NetSuite Sales Order created",
 
     requestPayload: payload,
-    responsePayload: result,
+    responsePayload: {
+      ...result,
+      shippingAddressSync,
+    },
   },
 });
 await prisma.orderSync.update({
