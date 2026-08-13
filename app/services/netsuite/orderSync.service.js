@@ -9,6 +9,10 @@ import { NETSUITE_CONFIG, SHOPIFY_CONFIG } from "../../constants/integrationConf
 
 const { salesOrder: NETSUITE_SALES_ORDER } = NETSUITE_CONFIG;
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function normalizeAddressValue(value) {
   return String(value || "")
     .trim()
@@ -110,6 +114,9 @@ async function updateCustomShippingAddressIfNeeded(netsuiteOrderId, shopifyShipp
   }
 
   const shippingAddress = buildShopifyShippingAddress(shopifyShippingAddress);
+
+  await sleep(NETSUITE_SALES_ORDER.customShippingAddress.patchDelayMs);
+  
   const updateResult = await netsuite.updateOrderFields(netsuiteOrderId, {
     shipAddressList: { id: NETSUITE_SALES_ORDER.customShippingAddress.shipAddressListId },
     shippingAddress,

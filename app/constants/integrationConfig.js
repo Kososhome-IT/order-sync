@@ -35,6 +35,7 @@ export const NETSUITE_CONFIG = {
     customShippingAddress: {
       shipAddressListId: "-2",
       isResidential: false,
+      patchDelayMs: 120000,
     },
   },
   customerDeposit: {
