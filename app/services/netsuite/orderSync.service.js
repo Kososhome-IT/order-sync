@@ -264,7 +264,27 @@ const shippingAmount =
 //   shopifyOrder
 //     ?.shipping_lines?.[0]
 //     ?.title || null;
-const shippingMethod = {id : NETSUITE_SALES_ORDER.shippingMethodId}
+let shippingMethod = null;
+
+if (
+  shopifyOrder.shipping_lines?.some(
+    (shippingLine) => shippingLine.code === 'CLASSIC_HOME_FREIGHT'
+  )
+) {
+  shippingMethod = {
+    id: NETSUITE_SALES_ORDER.shippingMethodId_2,
+  };
+} 
+
+if (
+  shopifyOrder.shipping_lines?.some(
+    (shippingLine) => shippingLine.code === 'CLASSIC_HOME_FEDEX_GROUND'
+  )
+) {
+  shippingMethod = {
+    id: NETSUITE_SALES_ORDER.shippingMethodId_1,
+  };
+}
 
   // const customer = await findCustomerByEmail(customerEmail);
 
