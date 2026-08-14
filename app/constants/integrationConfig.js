@@ -17,7 +17,8 @@ export const NETSUITE_CONFIG = {
     orderSourceId: "8",
     orderAttributeId: "54",
     segmentId: "3",
-    shippingMethodId: "26506",
+    shippingMethodId_1: "26506",
+    shippingMethodId_2: "58",// classic home freight
     orderTypeIds: {
       readyToCharge: "7",
       readyToWave: "2",
