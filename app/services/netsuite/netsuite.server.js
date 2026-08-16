@@ -29,6 +29,8 @@ class NetSuiteClient {
     // Base URL setup
     const domainPrefix = accountId.toLowerCase().replace("_", "-");
     this.baseUrl = `https://${domainPrefix}.suitetalk.api.netsuite.com/services/rest/record/v1`;
+
+    console.log("base netsuite url",this.baseUrl )
   }
 
   // helper method OAuth Headers 
