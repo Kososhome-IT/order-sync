@@ -1,6 +1,5 @@
 import prisma from "../../db.server";
 import { netsuite } from "./netsuite.server";
-import { findCustomerByEmail, } from "./customer.service";
 import { findCompanyByShopifyId } from "./company.service";
 import { findItemBySku, } from "./inventory.service";
 import { sessionStorage } from "../../shopify.server";
@@ -8,17 +7,6 @@ import { createAdminApiClient } from "@shopify/admin-api-client";
 import { NETSUITE_CONFIG, SHOPIFY_CONFIG } from "../../constants/integrationConfig";
 
 const { salesOrder: NETSUITE_SALES_ORDER } = NETSUITE_CONFIG;
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function normalizeAddressValue(value) {
-  return String(value || "")
-    .trim()
-    .replace(/\s+/g, " ")
-    .toLowerCase();
-}
 
 function buildShopifyShippingAddress(shopifyAddress) {
   if (!shopifyAddress) {
@@ -50,110 +38,11 @@ function buildShopifyShippingAddress(shopifyAddress) {
   };
 }
 
-function getAddressCountry(address) {
-  return address?.country?.id || address?.country?.refName || address?.country;
-}
-
-function addressesMatch(shopifyAddress, netsuiteAddress) {
-  if (!shopifyAddress || !netsuiteAddress) {
-    return false;
-  }
-
-  const shopifyCompare = {
-    addr1: shopifyAddress.address1,
-    addr2: shopifyAddress.address2,
-    city: shopifyAddress.city,
-    state: shopifyAddress.province_code || shopifyAddress.province,
-    zip: shopifyAddress.zip,
-    country: shopifyAddress.country_code,
-  };
-  const netsuiteCompare = {
-    addr1: netsuiteAddress.addr1,
-    addr2: netsuiteAddress.addr2,
-    city: netsuiteAddress.city,
-    state: netsuiteAddress.state,
-    zip: netsuiteAddress.zip,
-    country: getAddressCountry(netsuiteAddress),
-  };
-
-  return Object.keys(shopifyCompare).every(
-    (key) => normalizeAddressValue(shopifyCompare[key]) === normalizeAddressValue(netsuiteCompare[key])
-  );
-}
-
-async function updateCustomShippingAddressIfNeeded(netsuiteOrderId, shopifyShippingAddress) {
-  if (!shopifyShippingAddress) {
-    console.warn(
-      `[Shipping Address] Skipped custom shipping address update for Sales Order ${netsuiteOrderId}: Shopify shipping address missing.`
-    );
-    return null;
-  }
-
-  const netsuiteOrder = await netsuite.getOrder(netsuiteOrderId);
-
-  if (!netsuiteOrder.success) {
-    const message =
-      netsuiteOrder.data?.["o:errorDetails"]
-        ?.map((error) => error.detail)
-        ?.join(", ") ||
-      `Failed to fetch NetSuite Sales Order ${netsuiteOrderId} for shipping address check`;
-
-    console.error(`[Shipping Address] ${message}`);
-
-    return {
-      updated: false,
-      reason: "FETCH_FAILED",
-      error: message,
-      responsePayload: netsuiteOrder.data || {},
-    };
-  }
-
-  if (addressesMatch(shopifyShippingAddress, netsuiteOrder.data?.shippingAddress)) {
-    console.log(`[Shipping Address] Shopify and NetSuite shipping address match for Sales Order ${netsuiteOrderId}.`);
-    return { updated: false, reason: "MATCHED" };
-  }
-
-  const shippingAddress = buildShopifyShippingAddress(shopifyShippingAddress);
-
-  await sleep(NETSUITE_SALES_ORDER.customShippingAddress.patchDelayMs);
-  
-  const updateResult = await netsuite.updateOrderFields(netsuiteOrderId, {
-    shipAddressList: { id: NETSUITE_SALES_ORDER.customShippingAddress.shipAddressListId },
-    shippingAddress,
-  });
-
-  if (!updateResult.success) {
-    const message =
-      updateResult.data?.["o:errorDetails"]
-        ?.map((error) => error.detail)
-        ?.join(", ") ||
-      `Failed to update custom shipping address for NetSuite Sales Order ${netsuiteOrderId}`;
-
-    console.error(`[Shipping Address] ${message}`);
-
-    return {
-      updated: false,
-      reason: "UPDATE_FAILED",
-      error: message,
-      requestPayload: { shippingAddress },
-      responsePayload: updateResult.data || {},
-    };
-  }
-
-  console.log(`[Shipping Address] Custom shipping address updated for Sales Order ${netsuiteOrderId}.`);
-
-  return {
-    updated: true,
-    requestPayload: { shippingAddress },
-    responsePayload: updateResult,
-  };
-}
-
-
 export async function processShopifyOrder(orderSyncId, options = {}) {
     let payload = null;
     const SHOP_DOMAIN = process.env.SHOP;
   const API_VERSION = SHOPIFY_CONFIG.apiVersions.adminGraphql;
+  
   const session = await sessionStorage.loadSession(`offline_${SHOP_DOMAIN}`);
   if (!session) {
   throw new Error(
@@ -175,23 +64,12 @@ export async function processShopifyOrder(orderSyncId, options = {}) {
   const NETSUITE_DEFAULTS = {
   customFormId: NETSUITE_SALES_ORDER.customFormId,
   subsidiaryId: NETSUITE_SALES_ORDER.subsidiaryId,
-  termsId: NETSUITE_SALES_ORDER.termsId,
   accountSpecId: NETSUITE_SALES_ORDER.accountSpecId,
   orderSourceId: NETSUITE_SALES_ORDER.orderSourceId,
   orderAttributeId: NETSUITE_SALES_ORDER.orderAttributeId,
   segmentId: NETSUITE_SALES_ORDER.segmentId,
   custbody_wmsse_ordertype: NETSUITE_SALES_ORDER.orderTypeIds.readyToCharge
 };
-// const PAYMENT_TERM_MAP = {
-//   "Due on fulfilment": "null",
-//   "Net 7": "11",
-//   "Net 15": "1",
-//   "Net 30": "2",
-//   "Net 45": "8",
-//   "Net 60": "3",
-//   "Net 90": "9",
-// };
-
 
 
   if (!sync) {
@@ -202,14 +80,13 @@ export async function processShopifyOrder(orderSyncId, options = {}) {
   // Use fresh Shopify payload when retrying, otherwise use the original webhook payload.
   const shopifyOrder = options.shopifyOrder || sync.webhookPayload;
 
+
 if (!shopifyOrder) {
   throw new Error(
     `Shopify order payload missing for orderSyncId ${orderSyncId}`
   );
 }
-  // const shopifyPaymentTerm = shopifyOrder.payment_terms?.payment_terms_name;
-  // const netsuiteTermId = PAYMENT_TERM_MAP[shopifyPaymentTerm] || NETSUITE_DEFAULTS.termsId;
-
+const shippingAddress = buildShopifyShippingAddress(shopifyOrder.shipping_address);
   //  creating netsuite line from shopify order line items 
   const nsLines = [];
 
@@ -240,7 +117,6 @@ if (!shopifyOrder) {
   // Temporary test call
 
 
-  const customerID = shopifyOrder.customer?.email;
 
   const company = await findCompanyByShopifyId(
     admin,
@@ -260,10 +136,7 @@ const shippingAmount =
       ?.amount || 0
   );
 
-// const shippingMethod =
-//   shopifyOrder
-//     ?.shipping_lines?.[0]
-//     ?.title || null;
+
 let shippingMethod = null;
 
 if (
@@ -331,6 +204,8 @@ if (
       items: [{ id: NETSUITE_DEFAULTS.orderAttributeId }],
     },
     [NETSUITE_SALES_ORDER.fields.businessUnit]: { id: NETSUITE_DEFAULTS.segmentId },
+    shipAddressList: { id: NETSUITE_SALES_ORDER.customShippingAddress.shipAddressListId },
+    shippingAddress,
     item: {
       items: nsLines,
     }
@@ -362,12 +237,6 @@ if (!netsuiteOrderId) {
     "Failed to extract NetSuite Order ID"
   );
 }
-const shippingAddressSync =
-  await updateCustomShippingAddressIfNeeded(
-    netsuiteOrderId,
-    shopifyOrder.shipping_address
-  );
-
   console.log("Sales Order Result:", result);
 
   console.log("NetSuite Response:", result);
@@ -385,7 +254,7 @@ const shippingAddressSync =
     requestPayload: payload,
     responsePayload: {
       ...result,
-      shippingAddressSync,
+      
     },
   },
 });
