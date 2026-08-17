@@ -18,6 +18,7 @@ export const NETSUITE_CONFIG = {
     orderAttributeId: "54",
     segmentId: "3",
     shippingMethodId_1: "26506",
+    order_customer_pick:'21',
     shippingMethodId_2: "58",// classic home freight
     orderTypeIds: {
       readyToCharge: "7",
