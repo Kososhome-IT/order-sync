@@ -192,7 +192,7 @@ if (
   payload = {
     customForm: { id: NETSUITE_DEFAULTS.customFormId, },
     entity: { id: company.netsuiteCompanyId },
-    subsidiary: { id:  NETSUITE_DEFAULTS.subsidiaryId, },
+    // subsidiary: { id:  NETSUITE_DEFAULTS.subsidiaryId, },
     otherRefNum: shopifyOrder.po_number || shopifyOrder.name, 
     [NETSUITE_SALES_ORDER.fields.webOrderNumber]:otherRefNumDummy,
     [NETSUITE_SALES_ORDER.fields.orderType]:{id:NETSUITE_DEFAULTS.custbody_wmsse_ordertype},
