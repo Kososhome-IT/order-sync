@@ -285,6 +285,26 @@ if (
     id: NETSUITE_SALES_ORDER.shippingMethodId_1,
   };
 }
+// pickup ncbc
+if (
+  shopifyOrder.shipping_lines?.some(
+    (shippingLine) => shippingLine.code === 'High Point, NC'
+  )
+) {
+  shippingMethod = {
+    id: NETSUITE_SALES_ORDER.order_customer_pick,
+  };
+}
+// pickup vemw
+if (
+  shopifyOrder.shipping_lines?.some(
+    (shippingLine) => shippingLine.code === 'Los Angeles, CA'
+  )
+) {
+  shippingMethod = {
+    id: NETSUITE_SALES_ORDER.order_customer_pick,
+  };
+}
 
   // const customer = await findCustomerByEmail(customerEmail);
 
