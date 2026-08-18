@@ -116,7 +116,10 @@ const shippingAddress = buildShopifyShippingAddress(shopifyOrder.shipping_addres
 
   // Temporary test call
 
-
+console.log(
+  "[COMPANY DEBUG] Shopify order company:",
+  JSON.stringify(shopifyOrder.company, null, 2)
+);
 
   const company = await findCompanyByShopifyId(
     admin,
@@ -179,13 +182,7 @@ if (
   };
 }
 
-  // const customer = await findCustomerByEmail(customerEmail);
 
-  // if (!customer) {
-  //   throw new Error(
-  //     // `Customer not found in NetSuite: ${customerEmail}`
-  //   );
-  // }
 
   const otherRefNumDummy = shopifyOrder.name?.replace("#", "")
 

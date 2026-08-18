@@ -5,7 +5,22 @@ export async function findCompanyByShopifyId(
   shopifyCompanyId
 ) {
   // 1. Check mapping table
-let shopifyCompanyId_GID = `gid://shopify/Company/${shopifyCompanyId}`;
+
+function normalizeShopifyCompanyId(shopifyCompanyId) {
+  if (!shopifyCompanyId) {
+    throw new Error("Shopify Company ID is required");
+  }
+
+  const value = String(shopifyCompanyId);
+
+  if (value.startsWith("gid://shopify/Company/")) {
+    return value;
+  }
+
+  return `gid://shopify/Company/${value}`;
+}
+
+let shopifyCompanyId_GID = normalizeShopifyCompanyId(shopifyCompanyId);
   const existing =
     await prisma.companyMapping.findFirst({
       where: {
