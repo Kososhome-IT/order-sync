@@ -49,6 +49,13 @@ export async function processShopifyOrder(orderSyncId, options = {}) {
     "Offline Shopify session not found"
   );
 }
+console.log("[SHOPIFY AUTH DEBUG]", {
+  shopDomain: SHOP_DOMAIN,
+  sessionExists: !!session,
+  sessionShop: session?.shop,
+  tokenExists: !!session?.accessToken,
+  tokenLength: session?.accessToken?.length,
+});
   const admin = createAdminApiClient({
     storeDomain: SHOP_DOMAIN,
     apiVersion: API_VERSION,
