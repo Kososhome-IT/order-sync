@@ -1,5 +1,3 @@
-import prisma from "../../db.server";
-
 /**
  * Normalize Shopify Company ID.
  *
@@ -39,21 +37,55 @@ function getShopifyCompanyGid(shopifyCompanyId) {
 }
 
 /**
+ * Wait for a specified amount of time.
+ */
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+/**
+ * Check whether the error is a Shopify 401 Unauthorized error.
+ */
+function isUnauthorizedError(error) {
+  if (!error) {
+    return false;
+  }
+
+  const message = String(error.message || error);
+
+  return (
+    message.includes("401") ||
+    message.includes("Unauthorized") ||
+    message.includes("networkStatusCode: 401") ||
+    message.includes('"networkStatusCode":401')
+  );
+}
+
+/**
  * Find Shopify Company directly from Shopify.
+ *
+ * Retries ONLY when Shopify returns 401 Unauthorized.
+ *
+ * Retry strategy:
+ *
+ * Attempt 1 → immediately
+ * Attempt 2 → after 500ms
+ * Attempt 3 → after 1000ms
+ *
+ * Other errors are NOT retried.
  *
  * No CompanyMapping database lookup.
  * No CompanyMapping database creation.
  *
- * Shopify Company:
- *   gid://shopify/Company/XXXXXXXX
- *
  * Returns:
- *   {
- *     netsuiteCompanyId,
- *     shopifyCompanyId,
- *     shopifyCompanyName,
- *     shopifyCompanyLocationId
- *   }
+ * {
+ *   netsuiteCompanyId,
+ *   shopifyCompanyId,
+ *   shopifyCompanyName,
+ *   shopifyCompanyLocationId
+ * }
  */
 export async function findCompanyByShopifyId(
   admin,
@@ -107,40 +139,249 @@ export async function findCompanyByShopifyId(
     }
   `;
 
-  let response;
+  // ---------------------------------------------------------
+  // 3. Retry configuration
+  // ---------------------------------------------------------
 
-  try {
-    response = await admin.request(query, {
-      variables: {
-        id: shopifyCompanyIdGid,
-      },
-    });
-  } catch (error) {
-    console.error(
-      "[SHOPIFY COMPANY REQUEST ERROR]",
-      {
-        shopifyCompanyId:
-          shopifyCompanyIdNumeric,
-        shopifyCompanyGid:
-          shopifyCompanyIdGid,
-        message: error.message,
-        stack: error.stack,
+  const MAX_ATTEMPTS = 3;
+
+  const RETRY_DELAYS = [
+    1000,
+    2000,
+    3000,
+  ];
+
+  let response = null;
+  let lastError = null;
+
+  // ---------------------------------------------------------
+  // 4. Shopify request with 401 retry
+  // ---------------------------------------------------------
+
+  for (
+    let attempt = 1;
+    attempt <= MAX_ATTEMPTS;
+    attempt++
+  ) {
+    try {
+      /*
+       * Wait before retrying.
+       *
+       * First attempt:
+       *   0ms
+       *
+       * Second attempt:
+       *   500ms
+       *
+       * Third attempt:
+       *   1000ms
+       */
+
+      const delay = RETRY_DELAYS[attempt - 1];
+
+      if (delay > 0) {
+        console.log(
+          `[COMPANY LOOKUP] Waiting ${delay}ms before retry ${attempt}/${MAX_ATTEMPTS}`
+        );
+
+        await sleep(delay);
       }
-    );
 
-    throw new Error(
-      `Shopify Company API request failed: ${error.message}`
-    );
+      console.log(
+        `[COMPANY LOOKUP] Shopify request attempt ${attempt}/${MAX_ATTEMPTS}`,
+        {
+          companyId: shopifyCompanyIdNumeric,
+          companyGid: shopifyCompanyIdGid,
+        }
+      );
+
+      response = await admin.request(query, {
+        variables: {
+          id: shopifyCompanyIdGid,
+        },
+      });
+
+      /*
+       * -----------------------------------------------------
+       * Important:
+       *
+       * @shopify/admin-api-client can return the 401 as
+       * a response error instead of throwing it.
+       *
+       * Example:
+       *
+       * {
+       *   errors: {
+       *     networkStatusCode: 401,
+       *     message: "GraphQL Client: Unauthorized"
+       *   }
+       * }
+       * -----------------------------------------------------
+       */
+
+      const responseError = response?.errors;
+
+      if (responseError) {
+        const responseErrorText =
+          JSON.stringify(responseError);
+
+        const is401 =
+          responseError?.networkStatusCode === 401 ||
+          responseErrorText.includes(
+            "networkStatusCode"
+          ) &&
+            responseErrorText.includes("401") ||
+          responseErrorText.includes(
+            "Unauthorized"
+          );
+
+        /*
+         * ---------------------------------------------------
+         * 401 → retry
+         * ---------------------------------------------------
+         */
+
+        if (is401) {
+          lastError = new Error(
+            `Shopify Company API returned 401 Unauthorized`
+          );
+
+          console.warn(
+            `[COMPANY LOOKUP] Shopify returned 401 on attempt ${attempt}/${MAX_ATTEMPTS}`,
+            {
+              companyId:
+                shopifyCompanyIdNumeric,
+              companyGid:
+                shopifyCompanyIdGid,
+            }
+          );
+
+          if (attempt < MAX_ATTEMPTS) {
+            continue;
+          }
+
+          /*
+           * All retry attempts failed.
+           */
+          throw lastError;
+        }
+
+        /*
+         * ---------------------------------------------------
+         * Non-401 GraphQL error
+         *
+         * Do NOT retry.
+         * ---------------------------------------------------
+         */
+
+        console.error(
+          "[SHOPIFY COMPANY GRAPHQL ERROR]",
+          JSON.stringify(
+            responseError,
+            null,
+            2
+          )
+        );
+
+        throw new Error(
+          `Shopify Company GraphQL request failed: ${JSON.stringify(
+            responseError
+          )}`
+        );
+      }
+
+      /*
+       * -----------------------------------------------------
+       * Successful HTTP/GraphQL response
+       * -----------------------------------------------------
+       */
+
+      console.log(
+        `[COMPANY LOOKUP] Shopify request successful on attempt ${attempt}/${MAX_ATTEMPTS}`
+      );
+
+      break;
+    } catch (error) {
+      lastError = error;
+
+      /*
+       * -----------------------------------------------------
+       * Check whether thrown error is 401.
+       * -----------------------------------------------------
+       */
+
+      if (isUnauthorizedError(error)) {
+        console.warn(
+          `[COMPANY LOOKUP] Unauthorized error on attempt ${attempt}/${MAX_ATTEMPTS}`,
+          {
+            companyId:
+              shopifyCompanyIdNumeric,
+            companyGid:
+              shopifyCompanyIdGid,
+            message: error.message,
+          }
+        );
+
+        if (attempt < MAX_ATTEMPTS) {
+          continue;
+        }
+
+        /*
+         * All retries exhausted.
+         */
+
+        console.error(
+          "[SHOPIFY COMPANY REQUEST ERROR] All retry attempts failed",
+          {
+            shopifyCompanyId:
+              shopifyCompanyIdNumeric,
+            shopifyCompanyGid:
+              shopifyCompanyIdGid,
+            attempts: MAX_ATTEMPTS,
+            message: error.message,
+            stack: error.stack,
+          }
+        );
+
+        throw new Error(
+          `Shopify Company API request failed after ${MAX_ATTEMPTS} attempts: ${error.message}`
+        );
+      }
+
+      /*
+       * -----------------------------------------------------
+       * Non-401 error.
+       *
+       * Do NOT retry.
+       * -----------------------------------------------------
+       */
+
+      console.error(
+        "[SHOPIFY COMPANY REQUEST ERROR]",
+        {
+          shopifyCompanyId:
+            shopifyCompanyIdNumeric,
+          shopifyCompanyGid:
+            shopifyCompanyIdGid,
+          message: error.message,
+          stack: error.stack,
+        }
+      );
+
+      throw new Error(
+        `Shopify Company API request failed: ${error.message}`
+      );
+    }
   }
+
+  // ---------------------------------------------------------
+  // 5. Final response validation
+  // ---------------------------------------------------------
 
   console.log(
     "[COMPANY RESPONSE]",
     JSON.stringify(response, null, 2)
   );
-
-  // ---------------------------------------------------------
-  // 3. Handle GraphQL errors
-  // ---------------------------------------------------------
 
   if (response?.errors) {
     console.error(
@@ -160,7 +401,7 @@ export async function findCompanyByShopifyId(
   }
 
   // ---------------------------------------------------------
-  // 4. Validate Company
+  // 6. Validate Company
   // ---------------------------------------------------------
 
   const company =
@@ -181,7 +422,7 @@ export async function findCompanyByShopifyId(
   );
 
   // ---------------------------------------------------------
-  // 5. Get NetSuite Company ID
+  // 7. Get NetSuite Company ID
   // ---------------------------------------------------------
 
   const netsuiteCompanyId =
@@ -194,9 +435,7 @@ export async function findCompanyByShopifyId(
   }
 
   // ---------------------------------------------------------
-  // 6. Get Company Location
-  //
-  // Keep Location ID exactly as Shopify returns it.
+  // 8. Get Company Location
   // ---------------------------------------------------------
 
   const location =
@@ -212,7 +451,7 @@ export async function findCompanyByShopifyId(
     location.id;
 
   // ---------------------------------------------------------
-  // 7. Return company information
+  // 9. Return company information
   // ---------------------------------------------------------
 
   const result = {
