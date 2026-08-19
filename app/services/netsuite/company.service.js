@@ -1,14 +1,14 @@
 import prisma from "../../db.server";
 
 /**
- * Normalize Shopify Company ID to numeric format.
+ * Normalize Shopify Company ID.
  *
  * Accepted:
  *   7540474138
  *   "7540474138"
  *   "gid://shopify/Company/7540474138"
  *
- * Always returns:
+ * Returns:
  *   "7540474138"
  */
 function normalizeShopifyCompanyId(shopifyCompanyId) {
@@ -32,76 +32,56 @@ function normalizeShopifyCompanyId(shopifyCompanyId) {
 }
 
 /**
- * Convert numeric Shopify Company ID to Shopify GraphQL GID.
+ * Convert numeric Shopify Company ID to GraphQL GID.
  */
 function getShopifyCompanyGid(shopifyCompanyId) {
   return `gid://shopify/Company/${shopifyCompanyId}`;
 }
 
 /**
- * Find Shopify Company → NetSuite Company mapping.
+ * Find Shopify Company directly from Shopify.
  *
- * Database:
- *   shopifyCompanyId = numeric ID
+ * No CompanyMapping database lookup.
+ * No CompanyMapping database creation.
  *
- * Shopify API:
+ * Shopify Company:
  *   gid://shopify/Company/XXXXXXXX
+ *
+ * Returns:
+ *   {
+ *     netsuiteCompanyId,
+ *     shopifyCompanyId,
+ *     shopifyCompanyName,
+ *     shopifyCompanyLocationId
+ *   }
  */
 export async function findCompanyByShopifyId(
   admin,
   shopifyCompanyId
 ) {
   // ---------------------------------------------------------
-  // 1. Normalize Shopify Company ID
+  // 1. Normalize Company ID
   // ---------------------------------------------------------
 
   const shopifyCompanyIdNumeric =
     normalizeShopifyCompanyId(shopifyCompanyId);
 
   const shopifyCompanyIdGid =
-    getShopifyCompanyGid(shopifyCompanyIdNumeric);
-
-  console.log(
-    "[COMPANY LOOKUP]",
-    JSON.stringify(
-      {
-        input: shopifyCompanyId,
-        numericId: shopifyCompanyIdNumeric,
-        gid: shopifyCompanyIdGid,
-      },
-      null,
-      2
-    )
-  );
-
-  // ---------------------------------------------------------
-  // 2. Check local CompanyMapping table
-  // ---------------------------------------------------------
-
-  const existing =
-    await prisma.companyMapping.findFirst({
-      where: {
-        shopifyCompanyId:
-          shopifyCompanyIdNumeric,
-      },
-    });
-
-  if (existing) {
-    console.log(
-      "[COMPANY MAPPING] Found existing mapping:",
-      JSON.stringify(existing, null, 2)
+    getShopifyCompanyGid(
+      shopifyCompanyIdNumeric
     );
 
-    return existing;
-  }
-
   console.log(
-    "[COMPANY MAPPING] Mapping not found. Fetching from Shopify:",
-    shopifyCompanyIdGid
+    "[COMPANY LOOKUP] Fetching directly from Shopify",
+    {
+      input: shopifyCompanyId,
+      numericId: shopifyCompanyIdNumeric,
+      gid: shopifyCompanyIdGid,
+    }
   );
 
   // ---------------------------------------------------------
-  // 3. Shopify Company GraphQL query
+  // 2. Shopify GraphQL query
   // ---------------------------------------------------------
 
   const query = `
@@ -117,7 +97,7 @@ export async function findCompanyByShopifyId(
           value
         }
 
-        locations(first: 10) {
+        locations(first: 1) {
           nodes {
             id
             name
@@ -139,8 +119,10 @@ export async function findCompanyByShopifyId(
     console.error(
       "[SHOPIFY COMPANY REQUEST ERROR]",
       {
-        shopifyCompanyId: shopifyCompanyIdNumeric,
-        shopifyCompanyGid: shopifyCompanyIdGid,
+        shopifyCompanyId:
+          shopifyCompanyIdNumeric,
+        shopifyCompanyGid:
+          shopifyCompanyIdGid,
         message: error.message,
         stack: error.stack,
       }
@@ -157,13 +139,17 @@ export async function findCompanyByShopifyId(
   );
 
   // ---------------------------------------------------------
-  // 4. Handle GraphQL errors separately
+  // 3. Handle GraphQL errors
   // ---------------------------------------------------------
 
   if (response?.errors) {
     console.error(
       "[SHOPIFY COMPANY GRAPHQL ERROR]",
-      JSON.stringify(response.errors, null, 2)
+      JSON.stringify(
+        response.errors,
+        null,
+        2
+      )
     );
 
     throw new Error(
@@ -174,7 +160,7 @@ export async function findCompanyByShopifyId(
   }
 
   // ---------------------------------------------------------
-  // 5. Validate Company
+  // 4. Validate Company
   // ---------------------------------------------------------
 
   const company =
@@ -188,18 +174,14 @@ export async function findCompanyByShopifyId(
 
   console.log(
     "[SHOPIFY COMPANY FOUND]",
-    JSON.stringify(
-      {
-        id: company.id,
-        name: company.name,
-      },
-      null,
-      2
-    )
+    {
+      id: company.id,
+      name: company.name,
+    }
   );
 
   // ---------------------------------------------------------
-  // 6. Get NetSuite Company ID
+  // 5. Get NetSuite Company ID
   // ---------------------------------------------------------
 
   const netsuiteCompanyId =
@@ -212,10 +194,9 @@ export async function findCompanyByShopifyId(
   }
 
   // ---------------------------------------------------------
-  // 7. Get Shopify Company Location
+  // 6. Get Company Location
   //
-  // Business rule:
-  // One Company has one Company Location.
+  // Keep Location ID exactly as Shopify returns it.
   // ---------------------------------------------------------
 
   const location =
@@ -227,180 +208,31 @@ export async function findCompanyByShopifyId(
     );
   }
 
-  const shopifyCompanyLocationIdGid =
+  const shopifyCompanyLocationId =
     location.id;
 
-  // Convert:
-  // gid://shopify/CompanyLocation/5926060314
-  //
-  // To:
-  // 5926060314
+  // ---------------------------------------------------------
+  // 7. Return company information
+  // ---------------------------------------------------------
 
-  const shopifyCompanyLocationId =
-    shopifyCompanyLocationIdGid
-      .split("/")
-      .pop();
+  const result = {
+    netsuiteCompanyId,
 
-  if (
-    !shopifyCompanyLocationId ||
-    !/^\d+$/.test(
-      shopifyCompanyLocationId
-    )
-  ) {
-    throw new Error(
-      `Invalid Shopify Company Location ID: ${shopifyCompanyLocationIdGid}`
-    );
-  }
+    // Numeric Shopify Company ID
+    shopifyCompanyId:
+      shopifyCompanyIdNumeric,
+
+    shopifyCompanyName:
+      company.name,
+
+    // Keep Company Location GID unchanged
+    shopifyCompanyLocationId,
+  };
 
   console.log(
-    "[COMPANY DATA FROM SHOPIFY]",
-    JSON.stringify(
-      {
-        shopifyCompanyId:
-          shopifyCompanyIdNumeric,
-        shopifyCompanyLocationId,
-        shopifyCompanyLocationGid:
-          shopifyCompanyLocationIdGid,
-        companyName: company.name,
-        netsuiteCompanyId,
-      },
-      null,
-      2
-    )
+    "[COMPANY LOOKUP SUCCESS]",
+    JSON.stringify(result, null, 2)
   );
 
-  // ---------------------------------------------------------
-  // 8. Check NetSuite Company mapping
-  // ---------------------------------------------------------
-
-  const existingByNs =
-    await prisma.companyMapping.findUnique({
-      where: {
-        netsuiteCompanyId,
-      },
-    });
-
-  if (existingByNs) {
-    // Make sure this NetSuite Company belongs
-    // to the same Shopify Company.
-
-    if (
-      existingByNs.shopifyCompanyId !==
-      shopifyCompanyIdNumeric
-    ) {
-      console.error(
-        "[COMPANY MAPPING CONFLICT]",
-        JSON.stringify(
-          {
-            netsuiteCompanyId,
-            requestedShopifyCompanyId:
-              shopifyCompanyIdNumeric,
-            existingShopifyCompanyId:
-              existingByNs.shopifyCompanyId,
-            existingMapping:
-              existingByNs,
-          },
-          null,
-          2
-        )
-      );
-
-      throw new Error(
-        `NetSuite Company ${netsuiteCompanyId} is already mapped to another Shopify Company: ${existingByNs.shopifyCompanyId}`
-      );
-    }
-
-    console.log(
-      "[COMPANY MAPPING] Found existing mapping by NetSuite Company ID:",
-      JSON.stringify(existingByNs, null, 2)
-    );
-
-    return existingByNs;
-  }
-
-  // ---------------------------------------------------------
-  // 9. Create new CompanyMapping
-  // ---------------------------------------------------------
-
-  try {
-    const mapping =
-      await prisma.companyMapping.create({
-        data: {
-          netsuiteCompanyId,
-
-          // IMPORTANT:
-          // Store NUMERIC Shopify Company ID only.
-          shopifyCompanyId:
-            shopifyCompanyIdNumeric,
-
-          shopifyCompanyName:
-            company.name,
-
-          // IMPORTANT:
-          // Store NUMERIC Shopify Company Location ID only.
-          shopifyCompanyLocationId:
-            shopifyCompanyLocationId,
-        },
-      });
-
-    console.log(
-      "[COMPANY MAPPING] Created successfully:",
-      JSON.stringify(mapping, null, 2)
-    );
-
-    return mapping;
-  } catch (error) {
-    // -------------------------------------------------------
-    // 10. Handle Prisma unique constraint race condition
-    // -------------------------------------------------------
-
-    if (error?.code === "P2002") {
-      console.warn(
-        "[COMPANY MAPPING] Mapping was created by another request. Re-checking database."
-      );
-
-      const existingAfterConflict =
-        await prisma.companyMapping.findFirst({
-          where: {
-            shopifyCompanyId:
-              shopifyCompanyIdNumeric,
-          },
-        });
-
-      if (existingAfterConflict) {
-        return existingAfterConflict;
-      }
-
-      const existingNsAfterConflict =
-        await prisma.companyMapping.findUnique({
-          where: {
-            netsuiteCompanyId,
-          },
-        });
-
-      if (existingNsAfterConflict) {
-        if (
-          existingNsAfterConflict.shopifyCompanyId !==
-          shopifyCompanyIdNumeric
-        ) {
-          throw new Error(
-            `NetSuite Company ${netsuiteCompanyId} is already mapped to another Shopify Company: ${existingNsAfterConflict.shopifyCompanyId}`
-          );
-        }
-
-        return existingNsAfterConflict;
-      }
-    }
-
-    console.error(
-      "[COMPANY MAPPING CREATE ERROR]",
-      {
-        message: error.message,
-        code: error.code,
-        meta: error.meta,
-      }
-    );
-
-    throw error;
-  }
+  return result;
 }
