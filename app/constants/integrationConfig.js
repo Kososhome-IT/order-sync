@@ -1,6 +1,6 @@
 export const SHOPIFY_CONFIG = {
   apiVersions: {
-    adminGraphql: "2025-07",
+    adminGraphql: "2026-07",
     adminRest: "2026-04",
   },
   order: {
