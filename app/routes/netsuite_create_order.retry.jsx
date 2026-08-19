@@ -5,9 +5,15 @@ import { authenticate, sessionStorage } from "../shopify.server";
 import { fetchShopifyOrderById } from "../services/shopify/order.service";
 
 export async function action({ request }) {
-  await authenticate.admin(request);
+  console.log("[RETRY] ROUTE ENTERED");
 
   try {
+    console.log("[RETRY] STARTING SHOPIFY ADMIN AUTH");
+
+    const authResult = await authenticate.admin(request);
+
+    console.log("[RETRY] SHOPIFY ADMIN AUTH SUCCESS");
+
       const { orderSyncId } = await request.json();
     console.log("RETRY REQUEST STARTED");
 console.log("orderSyncId =", orderSyncId);
