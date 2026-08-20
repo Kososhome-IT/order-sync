@@ -28,10 +28,7 @@ const shopify = shopifyApp({
 export default shopify;
 
 export async function getAdminClient(shopDomain) {
-  const session =
-    await shopify.sessionStorage.loadSession(
-      `offline_${shopDomain}`
-    );
+  const session = await shopify.ensureValidOfflineSession(shopDomain);
 
   if (!session) {
     throw new Error(
