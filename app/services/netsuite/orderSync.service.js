@@ -179,7 +179,7 @@ if (
     otherRefNum: shopifyOrder.po_number || shopifyOrder.name, 
     [NETSUITE_SALES_ORDER.fields.webOrderNumber]:otherRefNumDummy,
     [NETSUITE_SALES_ORDER.fields.orderType]:{id:NETSUITE_DEFAULTS.custbody_wmsse_ordertype},
-    [NETSUITE_SALES_ORDER.fields.accountSpec]: { id: NETSUITE_DEFAULTS.accountSpecId },
+    // [NETSUITE_SALES_ORDER.fields.accountSpec]: { id: NETSUITE_DEFAULTS.accountSpecId },
     shippingcost:shippingAmount,
     shipmethod:shippingMethod,
     [NETSUITE_SALES_ORDER.fields.orderSource]: { id: NETSUITE_DEFAULTS.orderSourceId },
