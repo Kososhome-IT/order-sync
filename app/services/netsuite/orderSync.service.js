@@ -55,6 +55,16 @@ console.log("[SHOPIFY AUTH DEBUG]", {
   sessionShop: session?.shop,
   tokenExists: !!session?.accessToken,
   tokenLength: session?.accessToken?.length,
+    expires: session?.expires,
+  refreshTokenExpires: session?.refreshTokenExpires,
+  isExpired:
+    typeof session?.isExpired === "function"
+      ? session.isExpired()
+      : null,
+  isActive:
+    typeof session?.isActive === "function"
+      ? session.isActive()
+      : null,
 });
   const admin = createAdminApiClient({
     storeDomain: SHOP_DOMAIN,
@@ -133,10 +143,10 @@ console.log(
     shopifyOrder.company.id
   );
 
-console.log(
-  "COMPANY MAPPING",
-  company
-);  
+// console.log(
+//   "COMPANY MAPPING",
+//   company
+// );  
 
 const shippingAmount =
   Number(
@@ -215,16 +225,16 @@ if (
     }
   };
 
-  console.log("Creating NetSuite Sales Order",JSON.stringify(payload, null, 2));
+  // console.log("Creating NetSuite Sales Order",JSON.stringify(payload, null, 2));
   const result = await netsuite.createOrder(payload);
-  console.log(
-  "ORDER CREATED RESPONSE",
-  JSON.stringify(result, null, 2)
-);
-  console.log(
-  "NETSUITE CREATE RESPONSE",
-  JSON.stringify(result, null, 2)
-);
+//   console.log(
+//   "ORDER CREATED RESPONSE",
+//   JSON.stringify(result, null, 2)
+// );
+//   console.log(
+//   "NETSUITE CREATE RESPONSE",
+//   JSON.stringify(result, null, 2)
+// );
 if (!result.success) {
   throw new Error(
     result.data?.["o:errorDetails"]
@@ -241,9 +251,9 @@ if (!netsuiteOrderId) {
     "Failed to extract NetSuite Order ID"
   );
 }
-  console.log("Sales Order Result:", result);
+  // console.log("Sales Order Result:", result);
 
-  console.log("NetSuite Response:", result);
+  // console.log("NetSuite Response:", result);
   await prisma.orderSyncLog.create({
   data: {
     orderSyncId,

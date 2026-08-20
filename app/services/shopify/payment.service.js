@@ -37,7 +37,7 @@ async function fetchOrderPaymentMandate(admin, orderID) {
     }
   );
 
-  console.log("RAW SHOPIFY RESPONSE for order:", JSON.stringify(orderResponse, null, 2));
+  // console.log("RAW SHOPIFY RESPONSE for order:", JSON.stringify(orderResponse, null, 2));
 
   return {
     order: orderResponse?.data?.order,
@@ -148,6 +148,6 @@ export async function createMandatePayment(admin, { orderId, mandateId, idempote
     },
   });
 
-  console.log(`[Payment Capture] RAW SHOPIFY MUTATION RESPONSE`, JSON.stringify(response, null, 2));
+  // console.log(`[Payment Capture] RAW SHOPIFY MUTATION RESPONSE`, JSON.stringify(response, null, 2));
   return response;
 }

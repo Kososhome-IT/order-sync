@@ -23,10 +23,10 @@ console.log("orderSyncId =", orderSyncId);
         id: Number(orderSyncId),
       },
     });
-console.log(
-  "ORDER SYNC",
-  JSON.stringify(orderSync, null, 2)
-);
+// console.log(
+//   "ORDER SYNC",
+//   JSON.stringify(orderSync, null, 2)
+// );
     if (!orderSync) {
       return json(
         {
