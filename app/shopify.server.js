@@ -38,7 +38,7 @@ export async function getAdminClient(shopDomain) {
       `Shop ${shopDomain} offline session not found`
     );
   }
-
+console.log("[shopify.server.js]")
   console.log("[SHOPIFY OFFLINE SESSION]", {
     shop: session.shop,
     isOnline: session.isOnline,

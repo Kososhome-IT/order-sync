@@ -23,10 +23,10 @@ export async function findCustomerByEmail(
     },
   });
 
-    console.log(
-    "CUSTOMER RESPONSE:",
-    JSON.stringify(response, null, 2)
-  );
+  //   console.log(
+  //   "CUSTOMER RESPONSE:",
+  //   JSON.stringify(response, null, 2)
+  // );
 
   const customer =
     response?.data?.customers?.edges?.[0]?.node;

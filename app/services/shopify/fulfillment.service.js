@@ -244,7 +244,7 @@ export async function createFulfillment(admin, fulfillment, message) {
 export async function fulfillOrderFromNetSuite(admin, shopifyOrderId, payload) {
   const { order, fulfillmentOrders ,rawResponse} = await getOrderFulfillmentOrders(admin, shopifyOrderId);
 
-  console.log("order response : ", JSON.stringify(rawResponse,null,2));
+  // console.log("order response : ", JSON.stringify(rawResponse,null,2));
   console.dir({ 
     DEBUG_SHOPIFY_RESPONSE: {
       orderName: order?.name,

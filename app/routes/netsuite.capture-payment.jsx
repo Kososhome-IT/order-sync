@@ -70,7 +70,7 @@ export async function action({ request }) {
       amount: amount
     });
 
-    console.log(`[Payment Capture] RAW SHOPIFY MUTATION RESPONSE`, JSON.stringify(captureResponse, null, 2));
+    // console.log(`[Payment Capture] RAW SHOPIFY MUTATION RESPONSE`, JSON.stringify(captureResponse, null, 2));
 
     const resultData = captureResponse?.data?.orderCreateMandatePayment;
     const userErrors = resultData?.userErrors || [];
@@ -94,10 +94,10 @@ export async function action({ request }) {
       const netsuiteOrderId = netsuiteSalesOrderId; 
 
     if (initialPaymentReferenceId) {
-      console.log(`[Payment Capture] Tracking Payment Reference ID: ${initialPaymentReferenceId}`);
+      // console.log(`[Payment Capture] Tracking Payment Reference ID: ${initialPaymentReferenceId}`);
       
       for (let pollAttempt = 1; pollAttempt <= PAYMENT_CONFIG.jobPolling.maxAttempts; pollAttempt++) {
-        console.log(`[Payment Capture] Polling via orderPaymentStatus, attempt ${pollAttempt}/${PAYMENT_CONFIG.jobPolling.maxAttempts}. Waiting ${PAYMENT_CONFIG.jobPolling.delayMs}ms...`);
+        // console.log(`[Payment Capture] Polling via orderPaymentStatus, attempt ${pollAttempt}/${PAYMENT_CONFIG.jobPolling.maxAttempts}. Waiting ${PAYMENT_CONFIG.jobPolling.delayMs}ms...`);
         await sleep(PAYMENT_CONFIG.jobPolling.delayMs);
 
         try {
@@ -112,11 +112,11 @@ export async function action({ request }) {
             { variables: { orderId: orderID, paymentReferenceId: initialPaymentReferenceId } }
           );
           
-          console.log(`[Payment Capture] raw response paymentStatusResponse: ${JSON.stringify(paymentStatusResponse,null,2)}`);
+          // console.log(`[Payment Capture] raw response paymentStatusResponse: ${JSON.stringify(paymentStatusResponse,null,2)}`);
           paymentStatusDetails = paymentStatusResponse?.data?.orderPaymentStatus;
           const currentStatus = paymentStatusDetails?.status;
           
-          console.log(`[Payment Capture] Polled Order Payment Status: ${currentStatus}`);
+          // console.log(`[Payment Capture] Polled Order Payment Status: ${currentStatus}`);
 
           if (
             currentStatus === "SUCCESS" || 

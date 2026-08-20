@@ -88,8 +88,8 @@ export async function processShopifyOrderUpdate(orderSyncId) {
       item: { items: nsLines },
     };
 
-    console.log("NS LINES:", JSON.stringify(nsLines, null, 2));
-    console.log("UPDATE PAYLOAD:", JSON.stringify(payload, null, 2));
+    // console.log("NS LINES:", JSON.stringify(nsLines, null, 2));
+    // console.log("UPDATE PAYLOAD:", JSON.stringify(payload, null, 2));
 
     // Send the updated payload to NetSuite
     const result = await netsuite.updateOrder(sync.netsuiteOrderId, payload);
@@ -106,7 +106,7 @@ export async function processShopifyOrderUpdate(orderSyncId) {
       },
     });
 
-    console.log("NETSUITE UPDATE RESULT", JSON.stringify(result, null, 2));
+    // console.log("NETSUITE UPDATE RESULT", JSON.stringify(result, null, 2));
 
   } catch (error) {
     console.error("UPDATE FAILED", error);

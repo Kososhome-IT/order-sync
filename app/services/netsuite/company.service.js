@@ -378,10 +378,10 @@ export async function findCompanyByShopifyId(
   // 5. Final response validation
   // ---------------------------------------------------------
 
-  console.log(
-    "[COMPANY RESPONSE]",
-    JSON.stringify(response, null, 2)
-  );
+  // console.log(
+  //   "[COMPANY RESPONSE]",
+  //   JSON.stringify(response, null, 2)
+  // );
 
   if (response?.errors) {
     console.error(
@@ -468,10 +468,10 @@ export async function findCompanyByShopifyId(
     shopifyCompanyLocationId,
   };
 
-  console.log(
-    "[COMPANY LOOKUP SUCCESS]",
-    JSON.stringify(result, null, 2)
-  );
+  // console.log(
+  //   "[COMPANY LOOKUP SUCCESS]",
+  //   JSON.stringify(result, null, 2)
+  // );
 
   return result;
 }
