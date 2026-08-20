@@ -2,9 +2,8 @@ import prisma from "../../db.server";
 import { netsuite } from "./netsuite.server";
 import { findCompanyByShopifyId } from "./company.service";
 import { findItemBySku, } from "./inventory.service";
-import { sessionStorage } from "../../shopify.server";
-import { createAdminApiClient } from "@shopify/admin-api-client";
-import { NETSUITE_CONFIG, SHOPIFY_CONFIG } from "../../constants/integrationConfig";
+import { getAdminClient } from "../shopify.server";
+import { NETSUITE_CONFIG } from "../../constants/integrationConfig";
 
 const { salesOrder: NETSUITE_SALES_ORDER } = NETSUITE_CONFIG;
 
@@ -39,39 +38,9 @@ function buildShopifyShippingAddress(shopifyAddress) {
 }
 
 export async function processShopifyOrder(orderSyncId, options = {}) {
-    let payload = null;
-    const SHOP_DOMAIN = process.env.SHOP;
-  const API_VERSION = SHOPIFY_CONFIG.apiVersions.adminGraphql;
+  let payload = null;
+  const admin = await getAdminClient(process.env.SHOP);
   
-  const session = await sessionStorage.loadSession(`offline_${SHOP_DOMAIN}`);
-  if (!session) {
-  throw new Error(
-    "Offline Shopify session not found"
-  );
-}
-console.log("[SHOPIFY AUTH DEBUG]", {
-  shopDomain: SHOP_DOMAIN,
-  sessionExists: !!session,
-  sessionShop: session?.shop,
-  tokenExists: !!session?.accessToken,
-  tokenLength: session?.accessToken?.length,
-    expires: session?.expires,
-  refreshTokenExpires: session?.refreshTokenExpires,
-  isExpired:
-    typeof session?.isExpired === "function"
-      ? session.isExpired()
-      : null,
-  isActive:
-    typeof session?.isActive === "function"
-      ? session.isActive()
-      : null,
-});
-  const admin = createAdminApiClient({
-    storeDomain: SHOP_DOMAIN,
-    apiVersion: API_VERSION,
-    accessToken: session.accessToken,
-  });
-
   try {
   const sync = await prisma.orderSync.findUnique({
     where: {
