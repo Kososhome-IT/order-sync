@@ -1,7 +1,9 @@
 import prisma from "../db.server";
 import { json } from "../utils/jsonResponse";
-import { authenticate } from "../shopify.server";
+import { sessionStorage } from "../shopify.server";
+import { createAdminApiClient } from "@shopify/admin-api-client";
 import { processShopifyOrder } from "../services/netsuite/orderSync.service";
+import { verifyShopifyHmac } from "../utils/verifyShopifyHmac";
 import { getOrderSource } from "../services/shopify/orderSource.service";
 
 import {
@@ -10,76 +12,42 @@ import {
   EVENT_TYPE,
   STATUS,
 } from "../constants/orderSync";
+import { SHOPIFY_CONFIG } from "../constants/integrationConfig";
 
 export async function action({ request }) {
   try {
-    // Shopify handles:
-    // - Webhook HMAC verification
-    // - Shop identification
-    // - Offline session loading
-    // - Expiring offline token refresh
-    // - Admin API client creation
-    const { shop, payload, admin, session } =
-      await authenticate.webhook(request);
+    const body = await request.text();
 
-    if (!session || !admin) {
-      console.error(
-        `[WEBHOOK] No valid Shopify session/admin for shop ${shop}`
-      );
+    // HMAC Verification
+    verifyShopifyHmac(request, body);
 
-      return json(
-        {
-          ok: false,
-          error: "Shopify offline session is unavailable",
-        },
-        401
-      );
-    }
-
+    const payload = JSON.parse(body);
     const shopifyOrderId = String(payload.id);
     const shopifyOrderName = String(payload.name);
+    const SHOP_DOMAIN = process.env.SHOP;
+    const API_VERSION = SHOPIFY_CONFIG.apiVersions.adminGraphql;
 
     console.log(
-      "[WEBHOOK RECEIVED]",
-      {
-        shop,
-        shopifyOrderId,
-        shopifyOrderName,
-        receivedAt: new Date().toISOString(),
-        tokenExpires: session.expires || null,
-        refreshTokenExpires: session.refreshTokenExpires || null,
-        tokenIsExpired:
-          typeof session.isExpired === "function"
-            ? session.isExpired()
-            : null,
-      }
+      "WEBHOOK RECEIVED",
+      shopifyOrderId,
+      new Date().toISOString()
     );
 
-    // 1. Check whether order already exists
+    // 1. checking if order already exist
     let orderSync = await prisma.orderSync.findUnique({
-      where: {
-        shopifyOrderId,
-      },
+      where: { shopifyOrderId },
     });
 
-    // 2. Skip duplicate webhook if already processing/successful
+    // 2. sending response to webhook if order already in proccesing
     if (
       orderSync &&
-      (
-        orderSync.status === STATUS.PROCESSING ||
-        orderSync.status === STATUS.SUCCESS
-      )
+      (orderSync.status === STATUS.PROCESSING || orderSync.status === STATUS.SUCCESS)
     ) {
-      console.log(
-        `Skipping duplicate webhook ${shopifyOrderId} (Early Catch)`
-      );
-
-      return json({
-        ok: true,
-      });
+      console.log(`Skipping duplicate webhook ${shopifyOrderId} (Early Catch)`);
+      return json({ ok: true });
     }
 
-    // 3. Create order sync record if it does not exist
+    // 3. if no order exist create with PENDING state
     if (!orderSync) {
       orderSync = await prisma.orderSync.create({
         data: {
@@ -93,7 +61,7 @@ export async function action({ request }) {
       });
     }
 
-    // 4. Log webhook reception
+    // 4. webhook call log
     await prisma.orderSyncLog.create({
       data: {
         orderSyncId: orderSync.id,
@@ -105,30 +73,20 @@ export async function action({ request }) {
       },
     });
 
-    // 5. Start background processing.
-    //
-    // IMPORTANT:
-    // We pass the Admin client returned by authenticate.webhook().
-    // That client was created using the valid/refreshed offline session.
+    // 5.  calling order porocess
     processOrderInBackground({
       orderSyncId: orderSync.id,
       shopifyOrderId,
       payload,
-      admin,
-    }).catch((error) => {
-      console.error(
-        `[WEBHOOK BACKGROUND UNHANDLED ERROR] Order ${shopifyOrderId}`,
-        error
-      );
+      SHOP_DOMAIN,
+      API_VERSION,
     });
 
-    // 6. Respond to Shopify immediately
-    return json({
-      ok: true,
-    });
+    // sent Shopify  200 OK to webhook
+    return json({ ok: true });
+
   } catch (error) {
-    console.error("[ORDER WEBHOOK ERROR]", error);
-
+    console.error("ORDER WEBHOOK ERROR", error);
     return json(
       {
         ok: false,
@@ -140,103 +98,70 @@ export async function action({ request }) {
 }
 
 /**
- * Process Shopify order in background.
+ * order processing helper function
  */
 async function processOrderInBackground({
   orderSyncId,
   shopifyOrderId,
   payload,
-  admin,
+  SHOP_DOMAIN,
+  API_VERSION,
 }) {
   try {
-    // IMPORTANT:
-    // Do NOT load the offline session again here.
-    // Do NOT create another Admin client here.
-    //
-    // authenticate.webhook() already handled the session
-    // and token refresh before this function was started.
+    // adin client creation
+    const session = await sessionStorage.loadSession(`offline_${SHOP_DOMAIN}`);
+    const admin = createAdminApiClient({
+      storeDomain: SHOP_DOMAIN,
+      apiVersion: API_VERSION,
+      accessToken: session.accessToken,
+    });
 
-    // Check Order Source using the authenticated Admin client
-    const orderSource = await getOrderSource(
-      admin,
-      payload.id
-    );
+    // Metafield value (Order Source) check
+    const orderSource = await getOrderSource(admin, payload.id);
 
-    // Skip orders created from NetSuite
-    if (orderSource === "NETSUITE") {
-      console.log(
-        "Skipping NetSuite order",
-        payload.id
-      );
-
+    // if orderSource "8" ह (coming from NetSuite ), skip it
+    if (orderSource == "NETSUITE") {
+      console.log("Skipping NetSuite order", payload.id);
+      
       await prisma.orderSync.update({
-        where: {
-          id: orderSyncId,
-        },
+        where: { id: orderSyncId },
         data: {
-          status: STATUS.SKIPPED,
+          status: STATUS.SKIPPED, 
         },
       });
-
       return;
     }
 
-    // Mark as processing
+    // state PROCESSING to avoide race condtion
     await prisma.orderSync.update({
-      where: {
-        id: orderSyncId,
-      },
-      data: {
-        status: STATUS.PROCESSING,
-      },
+      where: { id: orderSyncId },
+      data: { status: STATUS.PROCESSING },
     });
 
-    // Shopify → NetSuite
-    //
-    // IMPORTANT:
-    // We also need to pass `admin` into processShopifyOrder()
-    // so that all Shopify GraphQL calls use the same valid client.
-    const netsuiteOrderId =
-      await processShopifyOrder(
-        orderSyncId,
-        admin
-      );
+    // Shopify -> NetSuite link process
+    const netsuiteOrderId = await processShopifyOrder(orderSyncId);
 
-    // Mark success
+    // link sucess updation
     await prisma.orderSync.update({
-      where: {
-        id: orderSyncId,
-      },
+      where: { id: orderSyncId },
       data: {
         netsuiteOrderId,
         status: STATUS.SUCCESS,
       },
     });
 
-    console.log(
-      `✅ Order ${shopifyOrderId} successfully synced to NetSuite.`
-    );
-  } catch (bgError) {
-    console.error(
-      `❌ Background Sync Failed for Order ${shopifyOrderId}:`,
-      bgError
-    );
+    console.log(`✅ Order ${shopifyOrderId} successfully synced to NetSuite.`);
 
-    await prisma.orderSync
-      .update({
-        where: {
-          id: orderSyncId,
-        },
-        data: {
-          status: STATUS.FAILED,
-          errorMessage: bgError.message,
-        },
-      })
-      .catch((dbError) => {
-        console.error(
-          "[ORDER SYNC] Failed to save background error",
-          dbError
-        );
-      });
+  } catch (bgError) {
+    console.error(`❌ Background Sync Failed for Order ${shopifyOrderId}:`, bgError);
+    
+    // failiure error saved to DB 
+    await prisma.orderSync.update({
+      where: { id: orderSyncId },
+      data: {
+        status: STATUS.FAILED,
+        errorMessage: bgError.message,
+      },
+    }).catch(() => {});
   }
 }
