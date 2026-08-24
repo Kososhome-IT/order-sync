@@ -28,47 +28,34 @@ const shopify = shopifyApp({
 export default shopify;
 
 export async function getAdminClient(shopDomain) {
-  const session =
-    await shopify.sessionStorage.loadSession(
-      `offline_${shopDomain}`
-    );
+  console.log(
+    `[SHOPIFY ADMIN] Creating background Admin client for ${shopDomain}`
+  );
 
-  if (!session) {
-    throw new Error(
-      `Shop ${shopDomain} offline session not found`
-    );
-  }
-console.log("[shopify.server.js]")
-  console.log("[SHOPIFY OFFLINE SESSION]", {
-    shop: session.shop,
-    isOnline: session.isOnline,
-    hasAccessToken: Boolean(session.accessToken),
-    hasRefreshToken: Boolean(session.refreshToken),
-    expires: session.expires || null,
+  const { admin, session } =
+    await shopify.unauthenticated.admin(shopDomain);
+
+  console.log("[SHOPIFY ADMIN] Session used", {
+    shop: session?.shop,
+    isOnline: session?.isOnline,
+    expires: session?.expires || null,
     refreshTokenExpires:
-      session.refreshTokenExpires || null,
+      session?.refreshTokenExpires || null,
     isExpired:
-      typeof session.isExpired === "function"
+      typeof session?.isExpired === "function"
         ? session.isExpired()
         : null,
-    isActive:
-      typeof session.isActive === "function"
-        ? session.isActive()
-        : null,
-    scope: session.scope,
+    hasAccessToken: Boolean(session?.accessToken),
+    hasRefreshToken: Boolean(session?.refreshToken),
   });
 
-  if (!session.accessToken) {
+  if (!admin) {
     throw new Error(
-      `Shop ${shopDomain} has no Admin API access token`
+      `Unable to create Shopify Admin client for ${shopDomain}`
     );
   }
 
-  return createAdminApiClient({
-    storeDomain: shopDomain,
-    apiVersion:ApiVersion.July26,
-    accessToken: session.accessToken,
-  });
+  return admin;
 }
 
 export const apiVersion = ApiVersion.July26;
