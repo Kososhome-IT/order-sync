@@ -1,7 +1,8 @@
 import prisma from "../db.server";
 import { json } from "../utils/jsonResponse";
-import { sessionStorage } from "../shopify.server";
-import { createAdminApiClient } from "@shopify/admin-api-client";
+// import { sessionStorage } from "../shopify.server";
+import { unauthenticated } from "../shopify.server";
+// import { createAdminApiClient } from "@shopify/admin-api-client";
 import { processShopifyOrder } from "../services/netsuite/orderSync.service";
 import { verifyShopifyHmac } from "../utils/verifyShopifyHmac";
 import { getOrderSource } from "../services/shopify/orderSource.service";
@@ -109,12 +110,13 @@ async function processOrderInBackground({
 }) {
   try {
     // adin client creation
-    const session = await sessionStorage.loadSession(`offline_${SHOP_DOMAIN}`);
-    const admin = createAdminApiClient({
-      storeDomain: SHOP_DOMAIN,
-      apiVersion: API_VERSION,
-      accessToken: session.accessToken,
-    });
+    // const session = await sessionStorage.loadSession(`offline_${SHOP_DOMAIN}`);
+    const { admin } = await unauthenticated.admin(SHOP_DOMAIN);
+    // const admin = createAdminApiClient({
+    //   storeDomain: SHOP_DOMAIN,
+    //   apiVersion: API_VERSION,
+    //   accessToken: session.accessToken,
+    // });
 
     // Metafield value (Order Source) check
     const orderSource = await getOrderSource(admin, payload.id);
