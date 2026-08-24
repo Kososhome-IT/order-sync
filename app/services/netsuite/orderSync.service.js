@@ -2,7 +2,7 @@ import prisma from "../../db.server";
 import { netsuite } from "./netsuite.server";
 import { findCompanyByShopifyId } from "./company.service";
 import { findItemBySku, } from "./inventory.service";
-import { getAdminClient } from "../../shopify.server";
+import { unauthenticated } from "../../shopify.server";
 import { NETSUITE_CONFIG } from "../../constants/integrationConfig";
 
 const { salesOrder: NETSUITE_SALES_ORDER } = NETSUITE_CONFIG;
@@ -39,9 +39,10 @@ function buildShopifyShippingAddress(shopifyAddress) {
 
 export async function processShopifyOrder(orderSyncId, options = {}) {
   let payload = null;
-  const admin = await getAdminClient(process.env.SHOP);
-
+  // const admin = await getAdminClient(process.env.SHOP);
+  
   try {
+    const { admin } = await unauthenticated.admin(process.env.SHOP);
   const sync = await prisma.orderSync.findUnique({
     where: {
       id: orderSyncId,
