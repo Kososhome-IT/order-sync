@@ -18,6 +18,9 @@ export async function loader({ request }) {
 
   const page = Number(url.searchParams.get("page") || 1);
 
+const sortBy = url.searchParams.get("sortBy") || "updatedAt";
+const sortOrder = url.searchParams.get("sortOrder") || "desc";
+
   const pageSize = 30;
   const where = {};
 
@@ -51,26 +54,42 @@ export async function loader({ request }) {
     where,
   });
 
-  const orders = await prisma.orderSync.findMany({
-    where,
-    orderBy: {
-      updatedAt: "desc",
-    },
+ const allowedSortFields = {
+  updatedAt: "updatedAt",
+  shopifyOrderName: "shopifyOrderName",
+  netsuiteOrderId: "netsuiteOrderId",
+  paymentStatus: "paymentCapturedAt",
+};
+
+const orders = await prisma.orderSync.findMany({
+  where,
+  orderBy: {
+    [allowedSortFields[sortBy] || "updatedAt"]: sortOrder === "asc" ? "asc" : "desc",
+  },
     skip: (page - 1) * pageSize,
     take: pageSize,
   });
 
-  return jsonResponse({
-    orders,
-    page,
-    search,
-    totalCount,
-    totalPages: Math.ceil(totalCount / pageSize),
-  });
+ return jsonResponse({
+  orders,
+  page,
+  search,
+  sortBy,
+  sortOrder,
+  totalCount,
+  totalPages: Math.ceil(totalCount / pageSize),
+});
 }
 
 export default function OrderSyncDashboard() {
-  const { orders, page, totalPages, search: loaderSearch } = useLoaderData();
+  const {
+  orders,
+  page,
+  totalPages,
+  search: loaderSearch,
+  sortBy,
+  sortOrder,
+} = useLoaderData();
   const navigate = useNavigate();
   const [selectedPayload, setSelectedPayload] = useState(null);
   const [toast, setToast] = useState(null);
@@ -176,7 +195,9 @@ export default function OrderSyncDashboard() {
                 onInput={(e) => setSearch(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
-                    navigate(`?page=1&search=${encodeURIComponent(search)}`);
+                   navigate(
+  `?page=1&search=${encodeURIComponent(search)}&sortBy=${sortBy}&sortOrder=${sortOrder}`
+);
                   }
                 }}
               />
@@ -196,12 +217,54 @@ export default function OrderSyncDashboard() {
               <s-popover id="sort-actions">
                 <s-stack gap="none">
                   <s-box padding="small">
-                    <s-choice-list label="Sort by" name="Sort by">
-                      <s-choice value="date" selected>
-                        Date
-                      </s-choice>
-                      <s-choice value="pieces">Pieces</s-choice>
-                    </s-choice-list>
+                   <s-choice-list
+  label="Sort by"
+  name="sortBy"
+  value={sortBy}
+  onChange={(e) => {
+    const newSortBy = e.currentTarget.values;
+
+    navigate(
+      `?page=1&search=${encodeURIComponent(search)}&sortBy=${newSortBy}&sortOrder=${sortOrder}`
+    );
+  }}
+>
+  <s-choice value="updatedAt">
+    Updated At
+  </s-choice>
+
+  <s-choice value="shopifyOrderName">
+    Shopify Order Name
+  </s-choice>
+
+  <s-choice value="netsuiteOrderId">
+    NetSuite Order ID
+  </s-choice>
+
+  <s-choice value="paymentStatus">
+    Payment Status
+  </s-choice>
+</s-choice-list>
+<s-choice-list
+  label="Order"
+  name="sortOrder"
+  value={sortOrder}
+  onChange={(e) => {
+    const newSortOrder = e.currentTarget.values;
+
+    navigate(
+      `?page=1&search=${encodeURIComponent(search)}&sortBy=${sortBy}&sortOrder=${newSortOrder}`
+    );
+  }}
+>
+  <s-choice value="desc">
+    Descending
+  </s-choice>
+
+  <s-choice value="asc">
+    Ascending
+  </s-choice>
+</s-choice-list>
                   </s-box>
                 </s-stack>
               </s-popover>
@@ -322,7 +385,9 @@ export default function OrderSyncDashboard() {
           <s-button
             disabled={page <= 1}
             onClick={() =>
-              navigate(`?page=${page - 1}&search=${encodeURIComponent(search)}`)
+             navigate(
+  `?page=${page - 1}&search=${encodeURIComponent(search)}&sortBy=${sortBy}&sortOrder=${sortOrder}`
+)
             }
           >
             Previous
@@ -335,7 +400,9 @@ export default function OrderSyncDashboard() {
           <s-button
             disabled={page >= totalPages}
             onClick={() =>
-              navigate(`?page=${page + 1}&search=${encodeURIComponent(search)}`)
+            navigate(
+  `?page=${page + 1}&search=${encodeURIComponent(search)}&sortBy=${sortBy}&sortOrder=${sortOrder}`
+)
             }
           >
             Next
