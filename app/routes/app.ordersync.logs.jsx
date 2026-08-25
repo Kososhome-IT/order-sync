@@ -15,14 +15,110 @@ export async function loader({ request }) {
   await authenticate.admin(request);
 
   const url = new URL(request.url);
+
   const page = Number(url.searchParams.get("page") || 1);
+  const search = url.searchParams.get("search") || "";
+
+  const sortBy = url.searchParams.get("sortBy") || "createdAt";
+  const sortOrder = url.searchParams.get("sortOrder") || "desc";
 
   const pageSize = 50;
 
-  const totalCount = await prisma.orderSyncLog.count();
+  const where = {};
+
+  if (search) {
+    where.OR = [
+      {
+        message: {
+          contains: search,
+          mode: "insensitive",
+        },
+      },
+      {
+        eventType: {
+          contains: search,
+          mode: "insensitive",
+        },
+      },
+      {
+        status: {
+          contains: search,
+          mode: "insensitive",
+        },
+      },
+      {
+        sourceSystem: {
+          contains: search,
+          mode: "insensitive",
+        },
+      },
+      {
+        direction: {
+          contains: search,
+          mode: "insensitive",
+        },
+      },
+      {
+        orderSync: {
+          shopifyOrderName: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+      },
+      {
+        orderSync: {
+          shopifyOrderId: {
+            contains: search,
+          },
+        },
+      },
+      {
+        orderSync: {
+          netsuiteOrderId: {
+            contains: search,
+          },
+        },
+      },
+    ];
+  }
+
+  const allowedSortFields = {
+    createdAt: "createdAt",
+    status: "status",
+    eventType: "eventType",
+    sourceSystem: "sourceSystem",
+    direction: "direction",
+  };
+
+  let orderBy;
+
+  if (sortBy === "shopifyOrderName") {
+    orderBy = {
+      orderSync: {
+        shopifyOrderName: sortOrder === "asc" ? "asc" : "desc",
+      },
+    };
+  } else if (sortBy === "netsuiteOrderId") {
+    orderBy = {
+      orderSync: {
+        netsuiteOrderId: sortOrder === "asc" ? "asc" : "desc",
+      },
+    };
+  } else {
+    orderBy = {
+      [allowedSortFields[sortBy] || "createdAt"]:
+        sortOrder === "asc" ? "asc" : "desc",
+    };
+  }
+
+  const totalCount = await prisma.orderSyncLog.count({
+    where,
+  });
 
   const logs = await prisma.orderSyncLog.findMany({
-    orderBy: { createdAt: "desc" },
+    where,
+    orderBy,
     skip: (page - 1) * pageSize,
     take: pageSize,
     include: {
@@ -33,20 +129,27 @@ export async function loader({ request }) {
   return jsonResponse({
     logs,
     page,
+    search,
+    sortBy,
+    sortOrder,
     totalCount,
     totalPages: Math.ceil(totalCount / pageSize),
   });
 }
 
 export default function OrderSyncLogDashboard() {
-  const {
+ const {
   logs,
   page,
   totalPages,
+  search: loaderSearch,
+  sortBy,
+  sortOrder,
 } = useLoaderData();
 const navigate = useNavigate();
 const [selectedMessage, setSelectedMessage] = useState(null);
 const [selectedDetails, setSelectedDetails] = useState(null);
+const [search, setSearch] = useState(loaderSearch || "");
   return (
     <s-page title="Order Sync Logs" inlineSize="large">
       <s-section>
@@ -75,7 +178,106 @@ const [selectedDetails, setSelectedDetails] = useState(null);
         {logs.length === 0 ? (
           <s-text tone="subdued">No log events available.</s-text>
         ) : (
-          <s-table>
+         <s-table>
+
+  <s-grid
+    slot="filters"
+    gap="small-200"
+    gridTemplateColumns="1fr auto"
+  >
+    <s-text-field
+      label="Search logs"
+      labelAccessibilityVisibility="exclusive"
+      icon="search"
+      placeholder="Search order, NetSuite ID, message, event..."
+      value={search}
+      onInput={(e) => setSearch(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          navigate(
+            `?page=1&search=${encodeURIComponent(search)}&sortBy=${sortBy}&sortOrder=${sortOrder}`
+          );
+        }
+      }}
+    />
+
+    <s-button
+      icon="sort"
+      variant="secondary"
+      accessibilityLabel="Sort"
+      commandFor="log-sort-actions"
+    />
+
+    <s-popover id="log-sort-actions">
+      <s-stack gap="none">
+        <s-box padding="small">
+
+          <s-choice-list
+            label="Sort by"
+            name="sortBy"
+            value={sortBy}
+            onChange={(e) => {
+              const newSortBy = e.currentTarget.values;
+
+              navigate(
+                `?page=1&search=${encodeURIComponent(search)}&sortBy=${newSortBy}&sortOrder=${sortOrder}`
+              );
+            }}
+          >
+            <s-choice value="createdAt">
+              Created At
+            </s-choice>
+
+            <s-choice value="shopifyOrderName">
+              Shopify Order Name
+            </s-choice>
+
+            <s-choice value="netsuiteOrderId">
+              NetSuite Order ID
+            </s-choice>
+
+            <s-choice value="status">
+              Status
+            </s-choice>
+
+            <s-choice value="eventType">
+              Event
+            </s-choice>
+
+            <s-choice value="sourceSystem">
+              Source
+            </s-choice>
+
+            <s-choice value="direction">
+              Direction
+            </s-choice>
+          </s-choice-list>
+
+          <s-choice-list
+            label="Order"
+            name="sortOrder"
+            value={sortOrder}
+            onChange={(e) => {
+              const newSortOrder = e.currentTarget.values;
+
+              navigate(
+                `?page=1&search=${encodeURIComponent(search)}&sortBy=${sortBy}&sortOrder=${newSortOrder}`
+              );
+            }}
+          >
+            <s-choice value="desc">
+              Descending
+            </s-choice>
+
+            <s-choice value="asc">
+              Ascending
+            </s-choice>
+          </s-choice-list>
+
+        </s-box>
+      </s-stack>
+    </s-popover>
+  </s-grid>
             <s-table-header-row>
               <s-table-header>Shopify Order</s-table-header>
               <s-table-header>Shopify Order Name</s-table-header>
@@ -262,22 +464,30 @@ const [selectedDetails, setSelectedDetails] = useState(null);
   }}
 >
   <s-button
-    disabled={page <= 1}
-    onClick={() => navigate(`?page=${page - 1}`)}
-  >
-    Previous
-  </s-button>
+  disabled={page <= 1}
+  onClick={() =>
+    navigate(
+      `?page=${page - 1}&search=${encodeURIComponent(search)}&sortBy=${sortBy}&sortOrder=${sortOrder}`
+    )
+  }
+>
+  Previous
+</s-button>
 
   <span>
     Page {page} of {totalPages}
   </span>
 
-  <s-button
-    disabled={page >= totalPages}
-    onClick={() => navigate(`?page=${page + 1}`)}
-  >
-    Next
-  </s-button>
+ <s-button
+  disabled={page >= totalPages}
+  onClick={() =>
+    navigate(
+      `?page=${page + 1}&search=${encodeURIComponent(search)}&sortBy=${sortBy}&sortOrder=${sortOrder}`
+    )
+  }
+>
+  Next
+</s-button>
 </div>
       </s-section>
     </s-page>
