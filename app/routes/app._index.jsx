@@ -18,6 +18,9 @@ export async function loader({ request }) {
 
   const page = Number(url.searchParams.get("page") || 1);
 
+const sortBy = url.searchParams.get("sortBy") || "updatedAt";
+const sortOrder = url.searchParams.get("sortOrder") || "desc";
+
   const pageSize = 30;
   const where = {};
 
@@ -51,78 +54,92 @@ export async function loader({ request }) {
     where,
   });
 
-  const orders = await prisma.orderSync.findMany({
-    where,
-    orderBy: {
-      updatedAt: "desc",
-    },
+ const allowedSortFields = {
+  updatedAt: "updatedAt",
+  shopifyOrderName: "shopifyOrderName",
+  netsuiteOrderId: "netsuiteOrderId",
+  paymentStatus: "paymentCapturedAt",
+};
+
+const orders = await prisma.orderSync.findMany({
+  where,
+  orderBy: {
+    [allowedSortFields[sortBy] || "updatedAt"]: sortOrder === "asc" ? "asc" : "desc",
+  },
     skip: (page - 1) * pageSize,
     take: pageSize,
   });
 
-  return jsonResponse({
-    orders,
-    page,
-    search,
-    totalCount,
-    totalPages: Math.ceil(totalCount / pageSize),
-  });
+ return jsonResponse({
+  orders,
+  page,
+  search,
+  sortBy,
+  sortOrder,
+  totalCount,
+  totalPages: Math.ceil(totalCount / pageSize),
+});
 }
 
 export default function OrderSyncDashboard() {
-  const { orders, page, totalPages, search: loaderSearch } = useLoaderData();
+  const {
+  orders,
+  page,
+  totalPages,
+  search: loaderSearch,
+  sortBy,
+  sortOrder,
+} = useLoaderData();
   const navigate = useNavigate();
   const [selectedPayload, setSelectedPayload] = useState(null);
   const [toast, setToast] = useState(null);
   const [retryingId, setRetryingId] = useState(null);
   const [search, setSearch] = useState(loaderSearch || "");
-  const retryOrder = async (orderSyncId) => {
-    setRetryingId(orderSyncId);
-    try {
-      const response = await fetch("/netsuite_create_order/retry", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          orderSyncId,
-        }),
+  const showToast = (message, isError = false) => {
+  shopify.toast.show(message, {
+    duration: 5000,
+    isError,
+  });
+};
+const retryOrder = async (orderSyncId) => {
+  setRetryingId(orderSyncId);
+
+  try {
+    const response = await fetch("/netsuite_create_order/retry", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        orderSyncId,
+      }),
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
+      shopify.toast.show("Retry started successfully", {
+        duration: 5000,
       });
 
-      const result = await response.json();
-
-      if (result.success) {
-        setToast({
-          type: "success",
-          message: "Retry started successfully",
-        });
-
-        setTimeout(() => {
-          setToast(null);
-          window.location.reload();
-        }, 2000);
-      } else {
-        setToast({
-          type: "error",
-          message: result.error,
-        });
-
-        setTimeout(() => {
-          setToast(null);
-        }, 5000);
-      }
-    } catch (error) {
-      setToast({
-        type: "error",
-        message: error.message,
-      });
       setTimeout(() => {
-        setToast(null);
+        window.location.reload();
       }, 5000);
-    } finally {
-      setRetryingId(null);
+    } else {
+      shopify.toast.show(result.error || "Retry failed", {
+        duration: 5000,
+        isError: true,
+      });
     }
-  };
+  } catch (error) {
+    shopify.toast.show(error.message || "Something went wrong", {
+      duration: 5000,
+      isError: true,
+    });
+  } finally {
+    setRetryingId(null);
+  }
+};
   return (
     <s-page title="Order Sync Dashboard" inlineSize="large">
       <s-section padding="none">
@@ -176,7 +193,9 @@ export default function OrderSyncDashboard() {
                 onInput={(e) => setSearch(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
-                    navigate(`?page=1&search=${encodeURIComponent(search)}`);
+                   navigate(
+  `?page=1&search=${encodeURIComponent(search)}&sortBy=${sortBy}&sortOrder=${sortOrder}`
+);
                   }
                 }}
               />
@@ -196,12 +215,54 @@ export default function OrderSyncDashboard() {
               <s-popover id="sort-actions">
                 <s-stack gap="none">
                   <s-box padding="small">
-                    <s-choice-list label="Sort by" name="Sort by">
-                      <s-choice value="date" selected>
-                        Date
-                      </s-choice>
-                      <s-choice value="pieces">Pieces</s-choice>
-                    </s-choice-list>
+                   <s-choice-list
+  label="Sort by"
+  name="sortBy"
+  value={sortBy}
+  onChange={(e) => {
+    const newSortBy = e.currentTarget.values;
+
+    navigate(
+      `?page=1&search=${encodeURIComponent(search)}&sortBy=${newSortBy}&sortOrder=${sortOrder}`
+    );
+  }}
+>
+  <s-choice value="updatedAt">
+    Updated At
+  </s-choice>
+
+  <s-choice value="shopifyOrderName">
+    Shopify Order Name
+  </s-choice>
+
+  <s-choice value="netsuiteOrderId">
+    NetSuite Order ID
+  </s-choice>
+
+  <s-choice value="paymentStatus">
+    Payment Status
+  </s-choice>
+</s-choice-list>
+<s-choice-list
+  label="Order"
+  name="sortOrder"
+  value={sortOrder}
+  onChange={(e) => {
+    const newSortOrder = e.currentTarget.values;
+
+    navigate(
+      `?page=1&search=${encodeURIComponent(search)}&sortBy=${sortBy}&sortOrder=${newSortOrder}`
+    );
+  }}
+>
+  <s-choice value="desc">
+    Descending
+  </s-choice>
+
+  <s-choice value="asc">
+    Ascending
+  </s-choice>
+</s-choice-list>
                   </s-box>
                 </s-stack>
               </s-popover>
@@ -295,12 +356,14 @@ export default function OrderSyncDashboard() {
                     )}
                   </s-table-cell>
                   <s-table-cell>
-                    <s-button
-                      onClick={() => setSelectedPayload(entry.webhookPayload)}
-                    >
-                      View Payload
-                    </s-button>
-                  </s-table-cell>
+  <s-button
+    commandFor="webhook-payload-modal"
+    command="--show"
+    onClick={() => setSelectedPayload(entry.webhookPayload)}
+  >
+    View Payload
+  </s-button>
+</s-table-cell>
                   <s-table-cell>
                     <s-text tone="subdued" variant="body-sm">
                       {new Date(entry.updatedAt).toLocaleString()}
@@ -311,6 +374,36 @@ export default function OrderSyncDashboard() {
             </s-table-body>
           </s-table>
         )}
+        <s-modal
+  id="webhook-payload-modal"
+  heading="Shopify Webhook Payload"
+>
+  <s-box padding="base">
+    <pre
+      style={{
+        maxHeight: "65vh",
+        overflow: "auto",
+        whiteSpace: "pre-wrap",
+        wordBreak: "break-word",
+        fontSize: "13px",
+        lineHeight: "1.5",
+      }}
+    >
+      {selectedPayload
+        ? JSON.stringify(selectedPayload, null, 2)
+        : "No payload available"}
+    </pre>
+  </s-box>
+
+  <s-button
+    slot="primary-action"
+    commandFor="webhook-payload-modal"
+    command="--hide"
+    onClick={() => setSelectedPayload(null)}
+  >
+    Close
+  </s-button>
+</s-modal>
         <div
           style={{
             display: "flex",
@@ -322,7 +415,9 @@ export default function OrderSyncDashboard() {
           <s-button
             disabled={page <= 1}
             onClick={() =>
-              navigate(`?page=${page - 1}&search=${encodeURIComponent(search)}`)
+             navigate(
+  `?page=${page - 1}&search=${encodeURIComponent(search)}&sortBy=${sortBy}&sortOrder=${sortOrder}`
+)
             }
           >
             Previous
@@ -335,7 +430,9 @@ export default function OrderSyncDashboard() {
           <s-button
             disabled={page >= totalPages}
             onClick={() =>
-              navigate(`?page=${page + 1}&search=${encodeURIComponent(search)}`)
+            navigate(
+  `?page=${page + 1}&search=${encodeURIComponent(search)}&sortBy=${sortBy}&sortOrder=${sortOrder}`
+)
             }
           >
             Next
@@ -343,72 +440,14 @@ export default function OrderSyncDashboard() {
         </div>
       </s-section>
 
-      {selectedPayload && (
-        <div
-          style={{
-            position: "fixed",
-            top: "5%",
-            left: "5%",
-            width: "90%",
-            height: "90%",
-            background: "white",
-            border: "1px solid #ddd",
-            zIndex: 99999,
-            overflow: "auto",
-            padding: "20px",
-          }}
-        >
-          <h2>Shopify Webhook Payload</h2>
+    
 
-          <pre>{JSON.stringify(selectedPayload, null, 2)}</pre>
-
-          <button onClick={() => setSelectedPayload(null)}>Close</button>
-        </div>
-      )}
-
-      {toast && (
-        <div
-          style={{
-            position: "fixed",
-            top: "20px",
-            right: "20px",
-            minWidth: "350px",
-            background: toast.type === "success" ? "#e3f1df" : "#fde8e8",
-            border:
-              toast.type === "success"
-                ? "1px solid #50b83c"
-                : "1px solid #d72c0d",
-            borderRadius: "8px",
-            padding: "16px",
-            zIndex: 999999,
-            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-            }}
-          >
-            <strong>{toast.type === "success" ? "Success" : "Error"}</strong>
-
-            <button
-              onClick={() => setToast(null)}
-              style={{
-                border: "none",
-                background: "transparent",
-                cursor: "pointer",
-                fontSize: "18px",
-              }}
-            >
-              ×
-            </button>
-          </div>
-
-          <div style={{ marginTop: "8px" }}>{toast.message}</div>
-        </div>
-      )}
+     <s-toast
+  id="app-toast"
+  duration={5000}
+>
+  {toast?.message || ""}
+</s-toast>
     </s-page>
   );
 }
