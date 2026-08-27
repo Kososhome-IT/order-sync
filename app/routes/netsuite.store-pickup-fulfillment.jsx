@@ -18,6 +18,7 @@ export async function action({ request }) {
   let orderSync = null;
   let shopifyOrderId = null;
   let orderName = null;
+  let fulfillmentOrderId = null;
 
   console.log("[NetSuite Store Pickup] START", {
     operationId,
@@ -90,25 +91,10 @@ export async function action({ request }) {
     }
 
     // -----------------------------------------
-    // Optional customer notification
-    // Default = false
-    // -----------------------------------------
-    const notifyCustomer =
-      payload.notifyCustomer === true;
-
-    console.log(
-      "[NetSuite Store Pickup] Notification setting",
-      {
-        operationId,
-        notifyCustomer,
-      }
-    );
-
-    // -----------------------------------------
     // Find OrderSync
     // -----------------------------------------
     console.log(
-      "[NetSuite Store Pickup] Searching OrderSync",
+      "[NetSuite Store Pickup] Searching OrderSync by order name",
       {
         operationId,
         orderName,
@@ -146,7 +132,7 @@ export async function action({ request }) {
     }
 
     // -----------------------------------------
-    // RECEIVED log
+    // RECEIVED DB log
     // -----------------------------------------
     await prisma.orderSyncLog.create({
       data: {
@@ -162,28 +148,23 @@ export async function action({ request }) {
     });
 
     // -----------------------------------------
-    // Get Shopify order ID
+    // Get Shopify Order ID
     // -----------------------------------------
     shopifyOrderId = orderSync.shopifyOrderId;
 
     if (!shopifyOrderId) {
-      return jsonResponse(
-        {
-          success: false,
-          message:
-            "Shopify order ID is missing in OrderSync",
-          orderName,
-        },
-        400
+      throw new Error(
+        "Shopify order ID is missing in OrderSync"
       );
     }
 
     if (
-      !shopifyOrderId.startsWith(
+      !String(shopifyOrderId).startsWith(
         "gid://shopify/Order/"
       )
     ) {
-      shopifyOrderId = `gid://shopify/Order/${shopifyOrderId}`;
+      shopifyOrderId =
+        `gid://shopify/Order/${shopifyOrderId}`;
     }
 
     console.log(
@@ -197,7 +178,7 @@ export async function action({ request }) {
     );
 
     // -----------------------------------------
-    // Shopify Admin API
+    // Create Shopify Admin client
     // -----------------------------------------
     const shopDomain = process.env.SHOP;
 
@@ -231,24 +212,27 @@ export async function action({ request }) {
           id
           name
           displayFulfillmentStatus
+
           fulfillmentOrders(first: 100) {
             nodes {
               id
               status
+
               assignedLocation {
                 location {
                   id
                   name
                 }
               }
+
+              deliveryMethod {
+                methodType
+              }
+
               lineItems(first: 100) {
                 nodes {
                   id
                   remainingQuantity
-                  lineItem {
-                    id
-                    name
-                  }
                 }
               }
             }
@@ -286,10 +270,14 @@ export async function action({ request }) {
       }
     );
 
+    // -----------------------------------------
+    // GraphQL errors
+    // -----------------------------------------
     if (fulfillmentOrdersData.errors?.length) {
-      const message = fulfillmentOrdersData.errors
-        .map((error) => error.message)
-        .join(", ");
+      const message =
+        fulfillmentOrdersData.errors
+          .map((error) => error.message)
+          .join(", ");
 
       throw new Error(message);
     }
@@ -306,116 +294,106 @@ export async function action({ request }) {
     const fulfillmentOrders =
       order.fulfillmentOrders?.nodes || [];
 
+    if (fulfillmentOrders.length === 0) {
+      throw new Error(
+        "No fulfillment orders found for Shopify order"
+      );
+    }
+
     // -----------------------------------------
-    // Filter fulfillment orders that can be fulfilled
+    // Find fulfillable PICKUP fulfillment order
     // -----------------------------------------
-    const fulfillableOrders =
+    const pickupFulfillmentOrders =
       fulfillmentOrders.filter(
-        (fulfillmentOrder) =>
-          fulfillmentOrder.status === "OPEN" &&
-          fulfillmentOrder.lineItems.nodes.some(
-            (lineItem) =>
-              Number(
-                lineItem.remainingQuantity
-              ) > 0
-          )
+        (fulfillmentOrder) => {
+          const hasRemainingItems =
+            fulfillmentOrder.lineItems.nodes.some(
+              (lineItem) =>
+                Number(
+                  lineItem.remainingQuantity
+                ) > 0
+            );
+
+          return (
+            fulfillmentOrder.status === "OPEN" &&
+            hasRemainingItems &&
+            fulfillmentOrder.deliveryMethod
+              ?.methodType === "PICK_UP"
+          );
+        }
       );
 
     console.log(
-      "[NetSuite Store Pickup] Fulfillable fulfillment orders",
+      "[NetSuite Store Pickup] Pickup fulfillment orders found",
       {
         operationId,
-        total:
+        totalFulfillmentOrders:
           fulfillmentOrders.length,
-        fulfillable:
-          fulfillableOrders.length,
-        fulfillmentOrderIds:
-          fulfillableOrders.map(
-            (entry) => entry.id
+        pickupFulfillmentOrders:
+          pickupFulfillmentOrders.length,
+        fulfillmentOrders:
+          pickupFulfillmentOrders.map(
+            (fulfillmentOrder) => ({
+              id: fulfillmentOrder.id,
+              status: fulfillmentOrder.status,
+              methodType:
+                fulfillmentOrder.deliveryMethod
+                  ?.methodType || null,
+              location:
+                fulfillmentOrder.assignedLocation
+                  ?.location?.name || null,
+            })
           ),
       }
     );
 
     // -----------------------------------------
-    // Store pickup must have one fulfillment order
+    // Validate exactly one pickup fulfillment order
     // -----------------------------------------
-    if (fulfillableOrders.length === 0) {
-      throw new Error(
-        "No fulfillable fulfillment order found for store pickup"
-      );
-    }
-
-    if (fulfillableOrders.length > 1) {
-      throw new Error(
-        `Expected one fulfillable fulfillment order for store pickup, found ${fulfillableOrders.length}`
-      );
-    }
-
-    const fulfillmentOrder =
-      fulfillableOrders[0];
-
-    // -----------------------------------------
-    // Build fulfillment line items
-    // -----------------------------------------
-    const fulfillmentLineItems =
-      fulfillmentOrder.lineItems.nodes
-        .filter(
-          (lineItem) =>
-            Number(
-              lineItem.remainingQuantity
-            ) > 0
-        )
-        .map((lineItem) => ({
-          id: lineItem.id,
-          quantity: Number(
-            lineItem.remainingQuantity
-          ),
-        }));
-
     if (
-      fulfillmentLineItems.length === 0
+      pickupFulfillmentOrders.length === 0
     ) {
       throw new Error(
-        "No fulfillable line items found for store pickup"
+        "No open pickup fulfillment order found"
       );
     }
 
+    if (
+      pickupFulfillmentOrders.length > 1
+    ) {
+      throw new Error(
+        `Expected one pickup fulfillment order, found ${pickupFulfillmentOrders.length}`
+      );
+    }
+
+    const pickupFulfillmentOrder =
+      pickupFulfillmentOrders[0];
+
+    fulfillmentOrderId =
+      pickupFulfillmentOrder.id;
+
     console.log(
-      "[NetSuite Store Pickup] Fulfillment line items prepared",
+      "[NetSuite Store Pickup] Pickup fulfillment order selected",
       {
         operationId,
-        fulfillmentOrderId:
-          fulfillmentOrder.id,
+        fulfillmentOrderId,
         location:
-          fulfillmentOrder.assignedLocation
+          pickupFulfillmentOrder.assignedLocation
             ?.location?.name || null,
-        lineItems:
-          fulfillmentLineItems,
       }
     );
 
     // -----------------------------------------
-    // Create fulfillment
+    // Mark ALL fulfillment order line items
+    // as prepared for pickup
     // -----------------------------------------
-    const fulfillmentMutation = `#graphql
-      mutation FulfillmentCreate(
-        $fulfillment: FulfillmentInput!
+    const preparedForPickupMutation = `#graphql
+      mutation FulfillmentOrderLineItemsPreparedForPickup(
+        $input: FulfillmentOrderLineItemsPreparedForPickupInput!
       ) {
-        fulfillmentCreate(
-          fulfillment: $fulfillment
+        fulfillmentOrderLineItemsPreparedForPickup(
+          input: $input
         ) {
-          fulfillment {
-            id
-            status
-            createdAt
-            updatedAt
-            notifyCustomer
-            trackingInfo {
-              company
-              number
-              url
-            }
-          }
           userErrors {
             field
             message
@@ -425,71 +403,70 @@ export async function action({ request }) {
     `;
 
     console.log(
-      "[NetSuite Store Pickup] Creating fulfillment",
+      "[NetSuite Store Pickup] Marking items prepared for pickup",
       {
         operationId,
-        fulfillmentOrderId:
-          fulfillmentOrder.id,
-        notifyCustomer,
+        fulfillmentOrderId,
       }
     );
 
-    const fulfillmentResponse =
+    const preparedForPickupResponse =
       await admin.graphql(
-        fulfillmentMutation,
+        preparedForPickupMutation,
         {
           variables: {
-            fulfillment: {
+            input: {
               lineItemsByFulfillmentOrder: [
                 {
-                  fulfillmentOrderId:
-                    fulfillmentOrder.id,
-                  fulfillmentOrderLineItems:
-                    fulfillmentLineItems,
+                  fulfillmentOrderId,
                 },
               ],
-              notifyCustomer,
             },
           },
         }
       );
 
-    const fulfillmentData =
-      await fulfillmentResponse.json();
+    const preparedForPickupData =
+      await preparedForPickupResponse.json();
 
     console.log(
-      "[NetSuite Store Pickup] Fulfillment response",
+      "[NetSuite Store Pickup] Prepared for pickup response",
       {
         operationId,
-        fulfillmentData,
+        preparedForPickupData,
       }
     );
 
-    if (fulfillmentData.errors?.length) {
-      const message = fulfillmentData.errors
-        .map((error) => error.message)
-        .join(", ");
+    // -----------------------------------------
+    // GraphQL errors
+    // -----------------------------------------
+    if (
+      preparedForPickupData.errors?.length
+    ) {
+      const message =
+        preparedForPickupData.errors
+          .map((error) => error.message)
+          .join(", ");
 
       throw new Error(message);
     }
 
-    const fulfillmentResult =
-      fulfillmentData.data?.fulfillmentCreate;
+    const result =
+      preparedForPickupData.data
+        ?.fulfillmentOrderLineItemsPreparedForPickup;
 
-    if (!fulfillmentResult) {
+    if (!result) {
       throw new Error(
-        "Shopify did not return fulfillmentCreate response"
+        "Shopify did not return prepared for pickup response"
       );
     }
 
     // -----------------------------------------
-    // Shopify fulfillment user errors
+    // Shopify user errors
     // -----------------------------------------
-    if (
-      fulfillmentResult.userErrors?.length
-    ) {
+    if (result.userErrors?.length) {
       const message =
-        fulfillmentResult.userErrors
+        result.userErrors
           .map((error) => {
             const field =
               error.field?.length
@@ -501,23 +478,19 @@ export async function action({ request }) {
           .join(", ");
 
       console.error(
-        "[NetSuite Store Pickup] Shopify fulfillment error",
+        "[NetSuite Store Pickup] Shopify user error",
         {
           operationId,
           orderName,
           shopifyOrderId,
-          errors:
-            fulfillmentResult.userErrors,
+          fulfillmentOrderId,
+          errors: result.userErrors,
         }
       );
 
+      // Throw so FAILED logging is handled
+      // by the existing catch block
       throw new Error(message);
-    }
-
-    if (!fulfillmentResult.fulfillment) {
-      throw new Error(
-        "Shopify did not return the created fulfillment"
-      );
     }
 
     // -----------------------------------------
@@ -529,43 +502,31 @@ export async function action({ request }) {
         operationId,
         orderName,
         shopifyOrderId,
-        fulfillmentOrderId:
-          fulfillmentOrder.id,
-        fulfillmentId:
-          fulfillmentResult.fulfillment.id,
-        status:
-          fulfillmentResult.fulfillment.status,
-        notifyCustomer:
-          fulfillmentResult.fulfillment
-            .notifyCustomer,
+        fulfillmentOrderId,
       }
     );
 
     // -----------------------------------------
-    // SUCCESS log
+    // SUCCESS DB log
     // -----------------------------------------
     await prisma.orderSyncLog.create({
       data: {
         orderSyncId: orderSync.id,
         sourceSystem: SYSTEM.NETSUITE,
-        direction:
-          DIRECTION.NETSUITE_TO_SHOPIFY,
+        direction: DIRECTION.NETSUITE_TO_SHOPIFY,
         eventType: EVENT_TYPE.FULFILL,
         status: STATUS.SUCCESS,
         message:
-          "Shopify store pickup fulfillment created from NetSuite",
+          "Shopify fulfillment order line items marked as prepared for pickup",
         requestPayload: payload,
-        responsePayload:
-          JSON.parse(
-            JSON.stringify(
-              fulfillmentResult
-            )
-          ),
+        responsePayload: JSON.parse(
+          JSON.stringify(result)
+        ),
       },
     });
 
     // -----------------------------------------
-    // Update OrderSync
+    // Update OrderSync SUCCESS
     // -----------------------------------------
     await prisma.orderSync.update({
       where: {
@@ -582,15 +543,10 @@ export async function action({ request }) {
     return jsonResponse({
       success: true,
       message:
-        "Store pickup fulfillment created",
+        "Order marked as prepared for pickup",
       shopifyOrderId,
-      shopifyOrderName:
-        order.name,
-      fulfillmentOrderId:
-        fulfillmentOrder.id,
-      fulfillment:
-        fulfillmentResult.fulfillment,
-      notifyCustomer,
+      shopifyOrderName: order.name,
+      fulfillmentOrderId,
     });
   } catch (error) {
     // -----------------------------------------
@@ -604,6 +560,7 @@ export async function action({ request }) {
           orderSync?.id || null,
         orderName,
         shopifyOrderId,
+        fulfillmentOrderId,
         errorName:
           error?.name || null,
         errorMessage:
@@ -615,6 +572,9 @@ export async function action({ request }) {
     );
 
     if (orderSync) {
+      // -----------------------------------------
+      // Update OrderSync FAILED
+      // -----------------------------------------
       try {
         await prisma.orderSync.update({
           where: {
@@ -624,7 +584,8 @@ export async function action({ request }) {
             status: STATUS.FAILED,
             action: EVENT_TYPE.FULFILL,
             errorMessage:
-              error.message,
+              error?.message ||
+              "Store pickup fulfillment failed",
           },
         });
       } catch (dbUpdateError) {
@@ -633,33 +594,33 @@ export async function action({ request }) {
           {
             operationId,
             dbError:
-              dbUpdateError.message,
+              dbUpdateError?.message,
           }
         );
       }
 
+      // -----------------------------------------
+      // FAILED DB log
+      // -----------------------------------------
       try {
         await prisma.orderSyncLog.create({
           data: {
-            orderSyncId:
-              orderSync.id,
-            sourceSystem:
-              SYSTEM.NETSUITE,
+            orderSyncId: orderSync.id,
+            sourceSystem: SYSTEM.NETSUITE,
             direction:
               DIRECTION.NETSUITE_TO_SHOPIFY,
-            eventType:
-              EVENT_TYPE.FULFILL,
-            status:
-              STATUS.FAILED,
+            eventType: EVENT_TYPE.FULFILL,
+            status: STATUS.FAILED,
             message:
-              error.message,
+              error?.message ||
+              "Store pickup fulfillment failed",
             requestPayload:
               payload || {},
             errorPayload: {
               message:
-                error.message,
+                error?.message || null,
               stack:
-                error.stack,
+                error?.stack || null,
             },
           },
         });
@@ -669,7 +630,7 @@ export async function action({ request }) {
           {
             operationId,
             dbError:
-              dbLogError.message,
+              dbLogError?.message,
           }
         );
       }
@@ -680,7 +641,7 @@ export async function action({ request }) {
         success: false,
         message:
           error?.message ||
-          "Failed to create store pickup fulfillment",
+          "Failed to mark order as prepared for pickup",
       },
       500
     );
