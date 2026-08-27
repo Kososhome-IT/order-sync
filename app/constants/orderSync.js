@@ -13,6 +13,7 @@ export const EVENT_TYPE = {
   UPDATE: "UPDATE",
   CANCEL: "CANCEL",
   FULFILL: "FULFILL",
+  PAYMENT_CAPTURE:"PAYMENT_CAPTURE"
 };
 
 export const STATUS = {
