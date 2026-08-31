@@ -59,7 +59,10 @@ async function fetchOrderPaymentMandate(admin, orderID) {
     console.log(
       `[Payment Mandate fetchOrderPaymentMandate] Shopify GraphQL request completed | Order: ${normalizedOrderID}`
     );
-
+console.log(
+  "[Payment Mandate] FULL RESPONSE:",
+  JSON.stringify(orderResponse, null, 2)
+);
     // Check GraphQL-level errors returned by Shopify
     if (orderResponse?.errors?.length > 0) {
       console.error(
