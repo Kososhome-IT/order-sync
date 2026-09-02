@@ -142,7 +142,7 @@ const net30_payment_mark_mutation_variables = {
 
 console.log("[NetSuite Manual Payment] Calling orderCreateManualPayment", {operationId,shopifyOrderId,orderName,paymentAmount: normalizedPaymentAmount,currencyCode,paymentMethodName,processedAt});
 
-const response = await admin.graphql( net30_payment_mark_mutation, { net30_payment_mark_mutation_variables });
+const response = await admin.graphql( net30_payment_mark_mutation, {  variables: net30_payment_mark_mutation_variables, });
 const responseData = await response.json();
 
 console.log("[NetSuite Manual Payment] Shopify mutation response", {operationId, responseData});
