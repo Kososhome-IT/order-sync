@@ -2,7 +2,6 @@ export const net30_payment_mark_mutation = `#graphql
   mutation OrderCreateManualPayment(
     $id: ID!
     $amount: MoneyInput
-    $paymentMethodName: String
     $processedAt: DateTime
   ) {
     orderCreateManualPayment(
