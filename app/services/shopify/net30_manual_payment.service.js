@@ -8,7 +8,6 @@ export const net30_payment_mark_mutation = `#graphql
     orderCreateManualPayment(
       id: $id
       amount: $amount
-      paymentMethodName: $paymentMethodName
       processedAt: $processedAt
     ) {
       order {

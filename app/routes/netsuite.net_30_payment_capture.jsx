@@ -64,7 +64,7 @@ if (!Number.isFinite(numericPaymentAmount) || numericPaymentAmount <= 0) {
 
 const currencyCode = String( payload.currencyCode || payload.currency_code || "USD" ).trim().toUpperCase();
 
-const paymentMethodName = String( payload.paymentMethodName || payload.payment_method_name || "NetSuite" ).trim();
+const paymentMethodName = String( payload.paymentMethodName || payload.payment_method_name ).trim();
 
 const processedAt = payload.processedAt || payload.processed_at || null;
 
@@ -136,7 +136,6 @@ const net30_payment_mark_mutation_variables = {
     amount: normalizedPaymentAmount,
     currencyCode,
   },
-  paymentMethodName,
   processedAt,
 };
 
