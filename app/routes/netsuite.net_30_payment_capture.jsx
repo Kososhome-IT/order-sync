@@ -136,7 +136,6 @@ const net30_payment_mark_mutation_variables = {
     amount: normalizedPaymentAmount,
     currencyCode,
   },
-  paymentMethodName,
   processedAt,
 };
 
