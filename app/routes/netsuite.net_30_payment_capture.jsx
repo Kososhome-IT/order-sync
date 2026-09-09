@@ -2,6 +2,17 @@ import prisma from "../db.server";
 import { unauthenticated } from "../shopify.server";
 import { jsonResponse } from "../utils/jsonResponse";
 import { net30_payment_mark_mutation } from  "../services/shopify/net30_manual_payment.service"
+import { netsuite } from "../services/netsuite/netsuite.server";
+import {
+  updateNetSuiteOrderTypeWithRetry,
+} from "../utils/payment.utils";
+import { paymentRepository } from "../repositories/payment.repository";
+import { syncLogger } from "../repositories/logger.service";
+import {
+  NETSUITE_CONFIG,
+} from "../constants/integrationConfig";
+
+const { customerDeposit: NETSUITE_CUSTOMER_DEPOSIT } = NETSUITE_CONFIG;
 
 function toShopifyOrderGid(orderId) {
 const value = String(orderId).trim();
@@ -72,6 +83,7 @@ console.log("[NetSuite Manual Payment] Searching OrderSync by order name",{opera
 
 orderSync = await prisma.orderSync.findFirst({ where: { shopifyOrderName: orderName }, });
 
+
 console.log("[NetSuite Manual Payment] OrderSync lookup completed", {
   operationId,
   found: Boolean(orderSync),
@@ -81,6 +93,10 @@ console.log("[NetSuite Manual Payment] OrderSync lookup completed", {
 });
 
 if (!orderSync) {
+   await syncLogger.failed({
+  message: `Order not found in database: ${orderName}`,
+  requestPayload: payload,
+}); 
   return jsonResponse(
     {
       success: false,
@@ -191,10 +207,77 @@ console.log("[NetSuite Manual Payment] SUCCESS", {
   shopifyOrderName: updatedOrder.name,
   financialStatus: updatedOrder.displayFinancialStatus,
   outstandingAmount: updatedOrder.totalOutstandingSet?.shopMoney?.amount || null,
-  outstandingCurrency: updatedOrder.totalOutstandingSet?.shopMoney?.currencyCode || null,
   paymentAmount: normalizedPaymentAmount,
-  paymentMethodName,
+
 });
+await syncLogger.success({
+  orderSyncId: orderSync.id,
+  eventType: "PAYMENT_CAPTURE",
+  direction: "NETSUITE_TO_SHOPIFY",
+  message: `Manual payment of ${normalizedPaymentAmount} recorded successfully`,
+  requestPayload: payload,
+  responsePayload: result,
+});
+const netsuiteCustomerId = orderSync.netsuiteCompanyId;
+const netsuiteOrderId = orderSync.netsuiteOrderId;
+const depositPayload = {
+          customer: {
+            id: netsuiteCustomerId.toString(),
+          },
+          salesOrder: {
+            id: netsuiteOrderId.toString(),
+          },
+          payment: Number(normalizedPaymentAmount),
+          memo: `Automated Deposit via Shopify Capture. Ref:`,
+          [NETSUITE_CUSTOMER_DEPOSIT.fields.businessUnit]: {
+            id: NETSUITE_CUSTOMER_DEPOSIT.businessUnitId,
+          }
+        };
+const depositResult = await netsuite.createCustomerDeposit(depositPayload);      
+
+if (depositResult.success) {
+  await paymentRepository.createPaymentSync({
+  netsuiteOrderId: orderSync.netsuiteOrderId,
+  shopifyOrderId: updatedOrder.id,
+  authorizationId: orderSync.shopifyOrderName,
+  paymentReference: operationId,
+  capturedAmount: numericPaymentAmount,
+  status: "SUCCESS",
+});  
+  await syncLogger.success({
+    orderSyncId: orderSync.id,
+    eventType: "CUSTOMER_DEPOSIT",
+    direction: "SHOPIFY_TO_NETSUITE",
+    message: "NetSuite customer deposit created successfully",
+    requestPayload: depositPayload,
+    responsePayload: depositResult,
+  });
+
+  await updateNetSuiteOrderTypeWithRetry(netsuiteOrderId);
+} else {
+  await syncLogger.failed({
+    orderSyncId: orderSync.id,
+    eventType: "CUSTOMER_DEPOSIT",
+    direction: "SHOPIFY_TO_NETSUITE",
+    message: "NetSuite customer deposit creation failed",
+    requestPayload: depositPayload,
+    responsePayload: depositResult,
+  });
+  return jsonResponse({
+  success: false,
+  message: "Shopify payment captured,but NetSuite customer deposit creation failed",
+  shopifyOrderId: updatedOrder.id,
+  shopifyOrderName: updatedOrder.name,
+  payment: { amount: normalizedPaymentAmount,
+    currencyCode,
+    paymentMethodName,
+    processedAt,
+  },
+  financialStatus: updatedOrder.displayFinancialStatus,
+  outstandingAmount:updatedOrder.totalOutstandingSet?.shopMoney?.amount || null,
+  outstandingCurrency: updatedOrder.totalOutstandingSet?.shopMoney?.currencyCode || null,
+});
+}
 
 return jsonResponse({
   success: true,
@@ -214,16 +297,19 @@ return jsonResponse({
 } catch (error) {
 console.error("[NetSuite Manual Payment] FAILED", {
 operationId,
-orderSyncId: orderSync?.id || null,
-orderName,
-shopifyOrderId,
-paymentAmount: payload?.paymentAmount || payload?.payment_amount || payload?.amount || null,
 errorName: error?.name || null,
 errorMessage: error?.message || null,
 errorStack: error?.stack || null,
 payload,
 });
-
+await syncLogger.failed({
+  orderSyncId: orderSync?.id || null,
+  eventType: "PAYMENT_CAPTURE",
+  direction: "NETSUITE_TO_SHOPIFY",
+  message: `Shopify manual payment failed: ${error?.message || "Unknown error"}`,
+  requestPayload: payload,
+responsePayload: null,
+});
 return jsonResponse({
     success: false,
     message: error?.message || "Failed to record manual payment",
