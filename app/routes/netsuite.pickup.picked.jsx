@@ -377,19 +377,6 @@ export async function action({ request }) {
 
     if (orderSync) {
       try {
-        await prisma.orderSync.update({
-          where: {
-            id: orderSync.id,
-          },
-          data: {
-            status: STATUS.FAILED,
-            action: EVENT_TYPE.FULFILL,
-            errorMessage:
-              error?.message ||
-              "Store pickup picked-up failed",
-          },
-        });
-
         await prisma.orderSyncLog.create({
           data: {
             orderSyncId: orderSync.id,
