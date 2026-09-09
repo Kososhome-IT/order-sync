@@ -1,6 +1,7 @@
 import { json } from "../utils/jsonResponse";
 import crypto from "node:crypto";
-import { getAdminClient } from "../shopify.server";
+// import { getAdminClient } from "../shopify.server";
+import { unauthenticated } from "../shopify.server";
 import {
   getOrderTransaction,
   createMandatePayment,
@@ -79,7 +80,7 @@ export async function action({ request }) {
 
     console.log(`[Payment Capture] Shopify shop: ${targetShop}`);
 
-    const admin = await getAdminClient(targetShop);
+    const { admin } = await unauthenticated.admin(targetShop);
 
     console.log("[Payment Capture] Shopify Admin client initialized.");
 
@@ -299,7 +300,7 @@ export async function action({ request }) {
         await sleep(PAYMENT_CONFIG.jobPolling.delayMs);
 
         try {
-          const paymentStatusResponse = await admin.request(
+          const paymentStatusResponse = await admin.graphql(
             `
             query CheckOrderPaymentStatus($orderId: ID!, $paymentReferenceId: String!) {
               orderPaymentStatus(orderId: $orderId, paymentReferenceId: $paymentReferenceId) {
@@ -315,8 +316,8 @@ export async function action({ request }) {
             }
           );
 
-          paymentStatusDetails =
-            paymentStatusResponse?.data?.orderPaymentStatus;
+          const paymentStatusData = await paymentStatusResponse.json();
+          paymentStatusDetails = paymentStatusData?.data?.orderPaymentStatus;
 
           const currentStatus = paymentStatusDetails?.status;
 
