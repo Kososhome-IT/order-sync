@@ -38,23 +38,26 @@ async function fetchOrderPaymentMandate(admin, orderID) {
       `[Payment Mandate fetchOrderPaymentMandate] Sending Shopify GraphQL request | Order: ${normalizedOrderID}`
     );
 
-    const orderResponse = await admin.request(
-      `query getOrderPaymentMandate($orderId: ID!) { 
-        order(id: $orderId) { 
-          displayFinancialStatus 
-          paymentCollectionDetails { 
-            vaultedPaymentMethods { 
-              id 
-            } 
-          } 
+    const orderResponseResponse = await admin.graphql(
+  `#graphql
+  query getOrderPaymentMandate($orderId: ID!) { 
+    order(id: $orderId) { 
+      displayFinancialStatus 
+      paymentCollectionDetails { 
+        vaultedPaymentMethods { 
+          id 
         } 
-      }`,
-      {
-        variables: {
-          orderId: normalizedOrderID,
-        },
-      }
-    );
+      } 
+    } 
+  }`,
+  {
+    variables: {
+      orderId: normalizedOrderID,
+    },
+  }
+);
+
+const orderResponse = await orderResponseResponse.json();
 
     console.log(
       `[Payment Mandate fetchOrderPaymentMandate] Shopify GraphQL request completed | Order: ${normalizedOrderID}`
@@ -152,7 +155,7 @@ console.log(
 
 /**
  * Fetches Shopify order and checks for a valid saved payment mandate.
- * @param {object} admin - Shopify Admin API Client
+ * @param {Object} admin - Shopify Admin API client instance
  * @param {string} orderID - The full Shopify Order Graphql ID (gid://shopify/Order/xxxx)
  */
 export async function getOrderTransaction(admin, orderID) {
@@ -379,19 +382,21 @@ export async function createMandatePayment(admin, { orderId, mandateId, idempote
     }
   `;
 
-  const response = await admin.request(mutation, {
-    variables: {
-      id: normalizedOrderId,
-      mandateId: mandateId,
-      idempotencyKey: idempotencyKey,
-      autoCapture: true,
-      amount: {
-        amount: amount.toString(),
-        currencyCode: currencyCode,
-      },
+ const response = await admin.graphql(mutation, {
+  variables: {
+    id: normalizedOrderId,
+    mandateId: mandateId,
+    idempotencyKey: idempotencyKey,
+    autoCapture: true,
+    amount: {
+      amount: amount.toString(),
+      currencyCode: currencyCode,
     },
-  });
+  },
+});
+
+const responseData = await response.json();
 
   // console.log(`[Payment Capture] RAW SHOPIFY MUTATION RESPONSE`, JSON.stringify(response, null, 2));
-  return response;
+  return responseData;
 }
