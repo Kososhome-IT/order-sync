@@ -91,12 +91,20 @@ const shippingAddress = buildShopifyShippingAddress(shopifyOrder.shipping_addres
         `Item not found: ${lineItem.sku}`
       );
     }
+  // Get Side Mark from Shopify line-item properties
+  const sidemarkProperty = lineItem.properties?.find(
+    (property) =>
+      property.name?.toLowerCase() === "side mark"
+  );
 
+  const sidemark = sidemarkProperty?.value ?? "";
     nsLines.push({
       item: {
         id: nsItem.id,
       },
       quantity,
+     // NetSuite Item Line field: Side Marks
+    custcol_sps_gen_noteinformationfield: sidemark,
       rate: Number(lineItem.price),
     });
   }
