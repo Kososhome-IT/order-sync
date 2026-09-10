@@ -178,11 +178,12 @@ if (
 }
 
 
-
+const order_notes = shopifyOrder.note
   const otherRefNumDummy = shopifyOrder.name?.replace("#", "")
 
   payload = {
     customForm: { id: NETSUITE_DEFAULTS.customFormId, },
+    custbody_ch_so_order_notes: order_notes,
     entity: { id: company.netsuiteCompanyId },
     subsidiary: { id:  NETSUITE_DEFAULTS.subsidiaryId, },
     otherRefNum: shopifyOrder.po_number || shopifyOrder.name, 
