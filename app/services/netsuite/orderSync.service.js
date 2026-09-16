@@ -7,6 +7,267 @@ import { NETSUITE_CONFIG } from "../../constants/integrationConfig";
 
 const { salesOrder: NETSUITE_SALES_ORDER } = NETSUITE_CONFIG;
 
+const US_STATE_CODES = {
+  Alabama: "AL",
+  Alaska: "AK",
+  Arizona: "AZ",
+  Arkansas: "AR",
+  California: "CA",
+  Colorado: "CO",
+  Connecticut: "CT",
+  Delaware: "DE",
+  Florida: "FL",
+  Georgia: "GA",
+  Hawaii: "HI",
+  Idaho: "ID",
+  Illinois: "IL",
+  Indiana: "IN",
+  Iowa: "IA",
+  Kansas: "KS",
+  Kentucky: "KY",
+  Louisiana: "LA",
+  Maine: "ME",
+  Maryland: "MD",
+  Massachusetts: "MA",
+  Michigan: "MI",
+  Minnesota: "MN",
+  Mississippi: "MS",
+  Missouri: "MO",
+  Montana: "MT",
+  Nebraska: "NE",
+  Nevada: "NV",
+  "New Hampshire": "NH",
+  "New Jersey": "NJ",
+  "New Mexico": "NM",
+  "New York": "NY",
+  "North Carolina": "NC",
+  "North Dakota": "ND",
+  Ohio: "OH",
+  Oklahoma: "OK",
+  Oregon: "OR",
+  Pennsylvania: "PA",
+  "Rhode Island": "RI",
+  "South Carolina": "SC",
+  "South Dakota": "SD",
+  Tennessee: "TN",
+  Texas: "TX",
+  Utah: "UT",
+  Vermont: "VT",
+  Virginia: "VA",
+  Washington: "WA",
+  "West Virginia": "WV",
+  Wisconsin: "WI",
+  Wyoming: "WY",
+  "District of Columbia": "DC",
+};
+
+function getUSStateCode(state) {
+  if (!state) return null;
+
+  const normalizedState = state.trim();
+
+  // Already a 2-letter state code
+  if (/^[A-Za-z]{2}$/.test(normalizedState)) {
+    return normalizedState.toUpperCase();
+  }
+
+  const entry = Object.entries(US_STATE_CODES).find(
+    ([name]) =>
+      name.toLowerCase() === normalizedState.toLowerCase()
+  );
+
+  return entry ? entry[1] : normalizedState;
+}
+
+
+async function getPickupAddressFromMetafields(admin, shopifyOrderId,shopifyOrder) {
+  const response = await admin.graphql(
+    `#graphql
+      query GetPickupAddressMetafields($id: ID!) {
+        order(id: $id) {
+
+          finalDestinationCountry: metafield(
+            namespace: "custom"
+            key: "final_destination_country"
+          ) {
+            value
+          }
+
+          finalDestinationPostalCode: metafield(
+            namespace: "custom"
+            key: "final_destination_postal_code"
+          ) {
+            value
+          }
+
+          finalDestinationState: metafield(
+            namespace: "custom"
+            key: "final_destination_state"
+          ) {
+            value
+          }
+
+          finalDestinationCity: metafield(
+            namespace: "custom"
+            key: "final_destination_city"
+          ) {
+            value
+          }
+
+          finalDestinationAddress2: metafield(
+            namespace: "custom"
+            key: "final_destination_address2"
+          ) {
+            value
+          }
+
+          finalDestinationAddress1: metafield(
+            namespace: "custom"
+            key: "final_destination_address1"
+          ) {
+            value
+          }
+
+          finalDestinationPhone: metafield(
+            namespace: "custom"
+            key: "final_destination_phone"
+          ) {
+            value
+          }
+
+          finalDestinationAttention: metafield(
+            namespace: "custom"
+            key: "final_destination_attention"
+          ) {
+            value
+          }
+
+          finalDestinationAddressee: metafield(
+            namespace: "custom"
+            key: "final_destination_addressee"
+          ) {
+            value
+          }
+        }
+      }
+    `,
+    {
+      variables: {
+        id: `gid://shopify/Order/${shopifyOrderId}`,
+      },
+    }
+  );
+
+  const result = await response.json();
+
+  if (result.errors) {
+    throw new Error(
+      `Failed to fetch pickup address metafields: ${JSON.stringify(
+        result.errors
+      )}`
+    );
+  }
+
+  const order = result.data?.order;
+
+  if (!order) {
+    throw new Error(
+      `Shopify order not found: ${shopifyOrderId}`
+    );
+  }
+const metafieldValues = [
+  order.finalDestinationCountry?.value,
+  order.finalDestinationPostalCode?.value,
+  order.finalDestinationState?.value,
+  order.finalDestinationCity?.value,
+  order.finalDestinationAddress2?.value,
+  order.finalDestinationAddress1?.value,
+  order.finalDestinationPhone?.value,
+  order.finalDestinationAttention?.value,
+  order.finalDestinationAddressee?.value,
+];
+
+const hasMetafieldValue = metafieldValues.some(
+  (value) =>
+    value !== null &&
+    value !== undefined &&
+    value.trim() !== ""
+);
+
+if (!hasMetafieldValue) {
+  return null;
+}
+  const state = getUSStateCode(
+    order.finalDestinationState?.value
+  );
+
+  return {
+    ...(order.finalDestinationAddressee?.value
+      ? {
+          addressee:
+            order.finalDestinationAddressee.value,
+        }
+      : {}),
+
+    ...(order.finalDestinationAttention?.value
+      ? {
+          attention:
+            order.finalDestinationAttention.value,
+        }
+      : {}),
+
+    ...(order.finalDestinationAddress1?.value
+      ? {
+          addr1:
+            order.finalDestinationAddress1.value,
+        }
+      : {}),
+
+    ...(order.finalDestinationAddress2?.value
+      ? {
+          addr2:
+            order.finalDestinationAddress2.value,
+        }
+      : {}),
+
+    ...(order.finalDestinationCity?.value
+      ? {
+          city:
+            order.finalDestinationCity.value,
+        }
+      : {}),
+
+    ...(state
+      ? {
+          state,
+        }
+      : {}),
+
+    ...(order.finalDestinationPostalCode?.value
+      ? {
+          zip:
+            order.finalDestinationPostalCode.value,
+        }
+      : {}),
+
+    // Country is always United States
+    country: {
+      id: "US",
+    },
+
+    ...(order.finalDestinationPhone?.value
+      ? {
+          addrPhone:
+            order.finalDestinationPhone.value,
+        }
+      : {}),
+
+    isResidential:
+      NETSUITE_SALES_ORDER.customShippingAddress
+        .isResidential,
+  };
+}
+
 function buildShopifyShippingAddress(shopifyAddress) {
   if (!shopifyAddress) {
     return null;
@@ -73,7 +334,26 @@ if (!shopifyOrder) {
     `Shopify order payload missing for orderSyncId ${orderSyncId}`
   );
 }
-const shippingAddress = buildShopifyShippingAddress(shopifyOrder.shipping_address);
+const isPickupOrder = shopifyOrder.shipping_lines?.some(
+  (shippingLine) =>
+    shippingLine.code === "High Point, NC" ||
+    shippingLine.code === "Los Angeles, CA"
+);
+
+let shippingAddress = buildShopifyShippingAddress(
+  shopifyOrder.shipping_address
+);
+
+if (isPickupOrder) {
+  const pickupAddress = await getPickupAddressFromMetafields(
+    admin,
+    shopifyOrder.id
+  );
+
+  if (pickupAddress) {
+    shippingAddress = pickupAddress;
+  }
+}
   //  creating netsuite line from shopify order line items 
   const nsLines = [];
 
