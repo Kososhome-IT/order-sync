@@ -303,7 +303,9 @@ export async function processShopifyOrder(orderSyncId, options = {}) {
   // const admin = await getAdminClient(process.env.SHOP);
   
   try {
+    console.log("before admin initiate")
     const { admin } = await unauthenticated.admin(process.env.SHOP);
+    console.log("after admin create")
   const sync = await prisma.orderSync.findUnique({
     where: {
       id: orderSyncId,
