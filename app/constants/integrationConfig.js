@@ -1,7 +1,7 @@
 export const SHOPIFY_CONFIG = {
   apiVersions: {
     adminGraphql: "2026-07",
-    adminRest: "2026-04",
+    adminRest: "2026-07",
   },
   order: {
     readyToChargeTypeName: "Shopify Ready To Charge",
