@@ -52,3 +52,12 @@ export async function updateNetSuiteOrderChargeDecline(netsuiteOrderId) {
     });
   return {  };
 }
+
+export async function updateNetSuiteOrderShopifyError(netsuiteOrderId) {
+     await netsuite.updateOrderFields(netsuiteOrderId, {
+      [NETSUITE_SALES_ORDER.fields.orderType]: {
+        id: NETSUITE_SALES_ORDER.orderTypeIds.shopifyError,
+      }
+    });
+  return {  };
+}
