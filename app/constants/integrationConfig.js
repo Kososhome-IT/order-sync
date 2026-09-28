@@ -24,6 +24,7 @@ export const NETSUITE_CONFIG = {
       readyToCharge: "7",
       readyToWave: "2",
       chargeDecline: "12",
+      shopifyError:"13",
     },
     fields: {
       orderType: "custbody_wmsse_ordertype",

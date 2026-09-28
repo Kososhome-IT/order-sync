@@ -13,6 +13,7 @@ import {
   getNetSuiteErrorMessage,
   updateNetSuiteOrderTypeWithRetry,
   updateNetSuiteOrderChargeDecline,
+  updateNetSuiteOrderShopifyError,
 } from "../utils/payment.utils";
 import { orderRepository } from "../repositories/order.repository";
 import { paymentRepository } from "../repositories/payment.repository";
@@ -356,8 +357,13 @@ export async function action({ request }) {
             console.warn(
               `[Payment Capture] Scheduling NetSuite charge decline update in 3 seconds | Sales Order: ${netsuiteOrderId}`
             );
-
-            setTimeout(async function () {
+             const errorMessage = paymentStatusDetails?.errorMessage?.trim() || "";
+  if (
+    errorMessage
+      .toLowerCase()
+      .includes("your card was declined")
+  ){
+    setTimeout(async function () {
               console.log(
                 `[Payment Capture] Executing delayed NetSuite charge decline update | Sales Order: ${netsuiteOrderId}`
               );
@@ -377,6 +383,32 @@ export async function action({ request }) {
                 );
               }
             }, 3000);
+
+  }else{
+
+     setTimeout(async function () {
+               console.log(
+      `[Payment Capture] Executing delayed NetSuite Shopify error update | Sales Order: ${netsuiteOrderId}`
+    );
+
+              try {
+                await updateNetSuiteOrderShopifyError(
+                  netsuiteOrderId
+                );
+
+                  console.log(
+        `[Payment Capture] ✅ NetSuite Shopify error update completed | Sales Order: ${netsuiteOrderId}`
+      );
+              }catch (shopifyError) {
+      console.error(
+        `[Payment Capture] ❌ NetSuite Shopify error update failed | Sales Order: ${netsuiteOrderId}:`,
+        shopifyError
+      );
+    }
+            }, 3000);
+
+  }
+            
 
             break;
           }
