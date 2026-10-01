@@ -7,6 +7,40 @@ import { NETSUITE_CONFIG } from "../../constants/integrationConfig";
 
 const { salesOrder: NETSUITE_SALES_ORDER } = NETSUITE_CONFIG;
 
+async function getOrderNotesMetafield(admin, shopifyOrderId) {
+  const response = await admin.graphql(
+    `#graphql
+      query GetOrderNotesMetafield($id: ID!) {
+        order(id: $id) {
+          orderNotes: metafield(
+            namespace: "checkoutblocks"
+            key: "order_notes"
+          ) {
+            value
+          }
+        }
+      }
+    `,
+    {
+      variables: {
+        id: `gid://shopify/Order/${shopifyOrderId}`,
+      },
+    }
+  );
+
+  const result = await response.json();
+
+  if (result.errors) {
+    throw new Error(
+      `Failed to fetch order notes metafield: ${JSON.stringify(
+        result.errors
+      )}`
+    );
+  }
+
+  return result.data?.order?.orderNotes?.value?.trim() || "";
+}
+
 const US_STATE_CODES = {
   Alabama: "AL",
   Alaska: "AK",
@@ -331,11 +365,17 @@ export async function processShopifyOrder(orderSyncId, options = {}) {
   const shopifyOrder = options.shopifyOrder || sync.webhookPayload;
 
 
+
+
 if (!shopifyOrder) {
   throw new Error(
     `Shopify order payload missing for orderSyncId ${orderSyncId}`
   );
 }
+  const orderNotes = await getOrderNotesMetafield(
+  admin,
+  shopifyOrder.id
+);
 const isPickupOrder = shopifyOrder.shipping_lines?.some(
   (shippingLine) =>
     shippingLine.code === "High Point, NC" ||
@@ -460,12 +500,12 @@ if (
 }
 
 
-const order_notes = shopifyOrder.note
+// const order_notes = shopifyOrder.note
   const otherRefNumDummy = shopifyOrder.name?.replace("#", "")
 
   payload = {
     customForm: { id: NETSUITE_DEFAULTS.customFormId, },
-    custbody_ch_so_order_notes: order_notes,
+    custbody_ch_so_order_notes: orderNotes,
     entity: { id: company.netsuiteCompanyId },
     subsidiary: { id:  NETSUITE_DEFAULTS.subsidiaryId, },
     otherRefNum: shopifyOrder.po_number || shopifyOrder.name, 
