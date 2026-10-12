@@ -7,6 +7,74 @@ import { NETSUITE_CONFIG } from "../../constants/integrationConfig";
 
 const { salesOrder: NETSUITE_SALES_ORDER } = NETSUITE_CONFIG;
 
+async function getShippingInstructions(admin, shopifyOrderId) {
+  const response = await admin.graphql(
+    `#graphql
+      query GetShippingInstructions($id: ID!) {
+        order(id: $id) {
+          thirdPartyAccount: metafield(
+            namespace: "checkoutblocks"
+            key: "third_party_account"
+          ) {
+            value
+          }
+
+          carrierPhoneNumberRequired: metafield(
+            namespace: "checkoutblocks"
+            key: "carrier_phone_number_required"
+          ) {
+            value
+          }
+
+          carrierEmailRequired: metafield(
+            namespace: "checkoutblocks"
+            key: "carrier_email_required"
+          ) {
+            value
+          }
+
+          carrierNameRequired: metafield(
+            namespace: "checkoutblocks"
+            key: "carrier_name_required"
+          ) {
+            value
+          }
+        }
+      }
+    `,
+    {
+      variables: {
+        id: `gid://shopify/Order/${shopifyOrderId}`,
+      },
+    }
+  );
+
+  const result = await response.json();
+
+  if (result.errors) {
+    throw new Error(
+      `Failed to fetch shipping instruction metafields: ${JSON.stringify(
+        result.errors
+      )}`
+    );
+  }
+
+  const metafields = result.data?.order;
+
+  if (!metafields) {
+    return "";
+  }
+
+  const instructions = [
+    metafields.thirdPartyAccount?.value?.trim(),
+    metafields.carrierPhoneNumberRequired?.value?.trim(),
+    metafields.carrierEmailRequired?.value?.trim(),
+    metafields.carrierNameRequired?.value?.trim(),
+  ].filter(Boolean);
+
+  return instructions.join("\n");
+}
+
 async function getOrderNotesMetafield(admin, shopifyOrderId) {
   const response = await admin.graphql(
     `#graphql
@@ -376,6 +444,11 @@ if (!shopifyOrder) {
   admin,
   shopifyOrder.id
 );
+
+const shippingInstructions = await getShippingInstructions(
+  admin,
+  shopifyOrder.id
+);
 const isPickupOrder = shopifyOrder.shipping_lines?.some(
   (shippingLine) =>
     shippingLine.code === "High Point, NC" ||
@@ -506,6 +579,7 @@ if (
   payload = {
     customForm: { id: NETSUITE_DEFAULTS.customFormId, },
     custbody_ch_so_order_notes: orderNotes,
+    custbody_ch_so_cust_delivery_instruc: shippingInstructions,
     entity: { id: company.netsuiteCompanyId },
     subsidiary: { id:  NETSUITE_DEFAULTS.subsidiaryId, },
     otherRefNum: shopifyOrder.po_number || shopifyOrder.name, 
