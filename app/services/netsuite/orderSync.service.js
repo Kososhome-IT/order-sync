@@ -551,6 +551,16 @@ if (
     id: NETSUITE_SALES_ORDER.shippingMethodId_1,
   };
 }
+//  backup shipping  rate patch added on demand 
+if (
+  shopifyOrder.shipping_lines?.some(
+    (shippingLine) => shippingLine.code === 'backup_rate'
+  )
+) {
+  shippingMethod = {
+    id: NETSUITE_SALES_ORDER.shippingMethodId_1,
+  };
+}
 // pickup ncbc
 if (
   shopifyOrder.shipping_lines?.some(
