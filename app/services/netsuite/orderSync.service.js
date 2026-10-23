@@ -529,38 +529,23 @@ const shippingAmount =
       ?.amount || 0
   );
 
-
+// shipping method logic changed on demand now all type of shipping string from shopify can be accepted
 let shippingMethod = null;
 
 if (
   shopifyOrder.shipping_lines?.some(
-    (shippingLine) => shippingLine.code === 'CLASSIC_HOME_FREIGHT'
+    (shippingLine) => shippingLine.code === "CLASSIC_HOME_FREIGHT"
   )
 ) {
   shippingMethod = {
     id: NETSUITE_SALES_ORDER.shippingMethodId_2,
   };
-} 
+} else {
+  shippingMethod = {
+    id: NETSUITE_SALES_ORDER.shippingMethodId_1,
+  };
+}
 
-if (
-  shopifyOrder.shipping_lines?.some(
-    (shippingLine) => shippingLine.code === 'CLASSIC_HOME_FEDEX_GROUND'
-  )
-) {
-  shippingMethod = {
-    id: NETSUITE_SALES_ORDER.shippingMethodId_1,
-  };
-}
-//  backup shipping  rate patch added on demand 
-if (
-  shopifyOrder.shipping_lines?.some(
-    (shippingLine) => shippingLine.code === 'backup_rate'
-  )
-) {
-  shippingMethod = {
-    id: NETSUITE_SALES_ORDER.shippingMethodId_1,
-  };
-}
 // pickup ncbc
 if (
   shopifyOrder.shipping_lines?.some(
