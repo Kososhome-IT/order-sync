@@ -9,11 +9,11 @@ function jsonResponse(data, status = 200) {
 
 export async function loader({ request }) {
   await authenticate.admin(request);
-  const retries = await prisma.paymentRetry.findMany({
-    orderBy: { updatedAt: "desc" },
-    take: 200,
-  });
-  return jsonResponse({ retries: retries.map((retry) => ({ ...retry, amount: retry.amount.toString() })) });
+  const [retries, runs] = await Promise.all([
+    prisma.paymentRetry.findMany({ orderBy: { updatedAt: "desc" }, take: 200 }),
+    prisma.paymentRetryRun.findMany({ orderBy: { startedAt: "desc" }, take: 10 }),
+  ]);
+  return jsonResponse({ retries: retries.map((retry) => ({ ...retry, amount: retry.amount.toString() })), runs });
 }
 
 export async function action({ request }) {
@@ -39,7 +39,7 @@ export async function action({ request }) {
 }
 
 export default function PaymentRetryDashboard() {
-  const { retries } = useLoaderData();
+  const { retries, runs } = useLoaderData();
   const fetcher = useFetcher();
   const revalidator = useRevalidator();
   useEffect(() => {
@@ -50,6 +50,27 @@ export default function PaymentRetryDashboard() {
     <s-page title="Payment Retries" inlineSize="large">
       <s-section>
         <s-paragraph>Failed charges, automatic retry schedule, and manual review status.</s-paragraph>
+        <s-heading>Recent Scheduler Runs</s-heading>
+        {runs.length === 0 ? <s-text tone="subdued">No scheduler runs recorded yet.</s-text> : (
+          <s-table>
+            <s-table-header-row>
+              <s-table-header>Started</s-table-header><s-table-header>Status</s-table-header>
+              <s-table-header>Due</s-table-header><s-table-header>Processed</s-table-header>
+              <s-table-header>Details</s-table-header>
+            </s-table-header-row>
+            <s-table-body>
+              {runs.map((run) => <s-table-row key={run.id}>
+                <s-table-cell>{new Date(run.startedAt).toLocaleString()}</s-table-cell>
+                <s-table-cell><s-badge tone={run.status === "SUCCESS" ? "success" : run.status === "FAILED" ? "critical" : "attention"}>{run.status}</s-badge></s-table-cell>
+                <s-table-cell>{run.dueCount}</s-table-cell>
+                <s-table-cell>{run.processedCount}</s-table-cell>
+                <s-table-cell>{run.errorMessage || run.schedulerJobName || "Completed"}</s-table-cell>
+              </s-table-row>)}
+            </s-table-body>
+          </s-table>
+        )}
+        <s-divider style={{ margin: "16px 0" }} />
+        <s-heading>Payment Retry Queue</s-heading>
         {retries.length === 0 ? <s-text tone="subdued">No payment retries recorded.</s-text> : (
           <s-table>
             <s-table-header-row>
