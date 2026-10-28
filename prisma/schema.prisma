@@ -49,6 +49,7 @@ model OrderSync {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   logs               OrderSyncLog[]
+  paymentRetries     PaymentRetry[]
 }
 
 model OrderSyncLog {
@@ -99,3 +100,42 @@ model PaymentSync {
   updatedAt           DateTime @updatedAt
 }
 
+model PaymentRetry {
+  id                  Int      @id @default(autoincrement())
+
+  // Relation to the existing order sync record
+  orderSyncId         Int      @unique
+  orderSync           OrderSync @relation(fields: [orderSyncId], references: [id], onDelete: Restrict)
+
+  // Order identifiers
+  shopifyOrderId      String
+  shopifyOrderName    String?
+  netsuiteOrderId     String?
+
+  // Payment details
+  amount              Decimal  @db.Decimal(12, 2)
+  currency            String?
+
+  // Retry control
+  status              String   @default("PENDING")
+  attemptCount        Int      @default(0)
+  maxAttempts         Int      @default(5)
+  nextRetryAt         DateTime?
+  lastAttemptAt       DateTime?
+
+  // Payment verification and duplicate protection
+  idempotencyKey      String?
+  paymentReference    String?
+  outcomeUnknown      Boolean  @default(false)
+
+  // Failure details
+  lastError           String?
+  lastErrorCode       String?
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([status, nextRetryAt])
+  @@index([shopifyOrderId])
+  @@index([netsuiteOrderId])
+}
