@@ -11,7 +11,7 @@ gcloud scheduler jobs create http payment-retry-daily \
   --time-zone="America/Los_Angeles" \
   --uri="https://YOUR_APP_HOST/api/payment-retries" \
   --http-method=POST \
-  --update-headers="Authorization=Bearer YOUR_PAYMENT_RETRY_CRON_SECRET,Content-Type=application/json" \
+  --headers="Authorization=Bearer YOUR_PAYMENT_RETRY_CRON_SECRET,Content-Type=application/json" \
   --message-body="{}"
 ```
 

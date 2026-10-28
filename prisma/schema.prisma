@@ -140,3 +140,17 @@ model PaymentRetry {
   @@index([shopifyOrderId])
   @@index([netsuiteOrderId])
 }
+
+model PaymentRetryRun {
+  id                  Int      @id @default(autoincrement())
+  status              String   @default("PROCESSING")
+  schedulerJobName    String?
+  dueCount            Int      @default(0)
+  processedCount      Int      @default(0)
+  errorMessage        String?
+  results             Json?
+  startedAt           DateTime @default(now())
+  completedAt         DateTime?
+
+  @@index([startedAt])
+}
