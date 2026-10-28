@@ -111,6 +111,7 @@ model PaymentRetry {
   shopifyOrderId      String
   shopifyOrderName    String?
   netsuiteOrderId     String?
+  shop                String?
 
   // Payment details
   amount              Decimal  @db.Decimal(12, 2)
@@ -119,7 +120,7 @@ model PaymentRetry {
   // Retry control
   status              String   @default("PENDING")
   attemptCount        Int      @default(0)
-  maxAttempts         Int      @default(5)
+  maxAttempts         Int      @default(2)
   nextRetryAt         DateTime?
   lastAttemptAt       DateTime?
 
