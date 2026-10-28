@@ -1,5 +1,7 @@
+/* global process */
 import { json } from "../utils/jsonResponse";
 import crypto from "node:crypto";
+import prisma from "../db.server";
 // import { getAdminClient } from "../shopify.server";
 import { unauthenticated } from "../shopify.server";
 import {
@@ -26,9 +28,72 @@ import {
 
 const { customerDeposit: NETSUITE_CUSTOMER_DEPOSIT } = NETSUITE_CONFIG;
 
+function isRetryablePaymentFailure(message = "") {
+  const normalized = String(message).toLowerCase();
+  if (/authentication|unauthori[sz]ed|forbidden|configuration|invalid api|missing.*mandate|not found/.test(normalized)) return false;
+  if (/timed? ?out|timeout|unknown|could not be confirmed/.test(normalized) && !/card was declined|insufficient funds/.test(normalized)) return false;
+  return /declin|insufficient funds|do not honor|card.*limit|temporary.*payment|try again|processing error/.test(normalized);
+}
+
+function nextPacificRetryAt(from = new Date()) {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+  });
+  const current = Object.fromEntries(formatter.formatToParts(from).map(({ type, value }) => [type, value]));
+  const target = new Date(Date.UTC(Number(current.year), Number(current.month) - 1, Number(current.day) + 1, 7));
+  const targetLocalEpoch = target.getTime();
+  let candidate = new Date(targetLocalEpoch + 8 * 60 * 60 * 1000);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const local = Object.fromEntries(formatter.formatToParts(candidate).map(({ type, value }) => [type, value]));
+    const localEpoch = Date.UTC(Number(local.year), Number(local.month) - 1, Number(local.day), Number(local.hour), Number(local.minute), Number(local.second));
+    candidate = new Date(candidate.getTime() + targetLocalEpoch - localEpoch);
+  }
+  return candidate;
+}
+
+async function recordPaymentRetry(orderSync, payload, amount, message, code) {
+  const now = new Date();
+  const retryable = isRetryablePaymentFailure(message);
+  const existing = await prisma.paymentRetry.findUnique({ where: { orderSyncId: orderSync.id } });
+  if (existing && ["SUCCESS", "PENDING", "MANUAL_REVIEW"].includes(existing.status)) return existing;
+  return prisma.paymentRetry.upsert({
+    where: { orderSyncId: orderSync.id },
+    create: {
+      orderSyncId: orderSync.id,
+      shopifyOrderId: String(orderSync.shopifyOrderId),
+      shopifyOrderName: orderSync.shopifyOrderName || payload.shopifyOrderName,
+      netsuiteOrderId: orderSync.netsuiteOrderId,
+      shop: payload.shop || process.env.SHOP,
+      amount,
+      currency: payload.currency || "USD",
+      status: retryable ? "PENDING" : "MANUAL_REVIEW",
+      attemptCount: 0,
+      maxAttempts: 2,
+      lastAttemptAt: now,
+      outcomeUnknown: !retryable && /timed? ?out|timeout|could not be confirmed/i.test(message),
+      nextRetryAt: retryable ? nextPacificRetryAt(now) : null,
+      lastError: message,
+      lastErrorCode: code,
+    },
+    update: {
+      status: retryable ? "PENDING" : "MANUAL_REVIEW",
+      maxAttempts: 2,
+      lastAttemptAt: now,
+      outcomeUnknown: !retryable && /timed? ?out|timeout|could not be confirmed/i.test(message),
+      nextRetryAt: retryable ? nextPacificRetryAt(now) : null,
+      lastError: message,
+      lastErrorCode: code,
+    },
+  });
+}
+
 export async function action({ request }) {
   let orderSync = null;
   let payload = null;
+  let reservedPaymentRetryId = null;
+  let activePaymentRetryId = null;
 
   try {
     console.log("[Payment Capture] ========================================");
@@ -57,7 +122,10 @@ export async function action({ request }) {
       netsuiteSalesOrderId,
       custbody_wmsse_ordertype,
       shop,
+      idempotencyKey: suppliedIdempotencyKey,
+      paymentRetryId,
     } = payload;
+    activePaymentRetryId = paymentRetryId || null;
 
     console.log(
       `[Payment Capture] Incoming request | Order: ${shopifyOrderName} | Amount: ${amount} | NetSuite SO: ${netsuiteSalesOrderId}`
@@ -160,6 +228,18 @@ export async function action({ request }) {
       `[Payment Capture] OrderSync found | DB ID: ${orderSync.id} | Shopify Order ID: ${orderSync.shopifyOrderId} | NetSuite Order ID: ${orderSync.netsuiteOrderId}`
     );
 
+    if (!paymentRetryId) {
+      const priorAttempt = await prisma.paymentRetry.findUnique({ where: { orderSyncId: orderSync.id } });
+      if (priorAttempt) {
+        const message = priorAttempt.status === "SUCCESS"
+          ? "Payment was already captured."
+          : priorAttempt.status === "PENDING"
+            ? "Payment failed and is queued for automatic retry."
+            : "A payment attempt already exists and needs review.";
+        return json({ success: priorAttempt.status === "SUCCESS", message, status: priorAttempt.status }, { status: priorAttempt.status === "SUCCESS" ? 200 : 409 });
+      }
+    }
+
     const orderID = toShopifyOrderGid(orderSync.shopifyOrderId);
 
     console.log(
@@ -209,7 +289,26 @@ export async function action({ request }) {
       `[Payment Capture] ✅ Payment mandate found for ${shopifyOrderName}.`
     );
 
-    const idempotencyKey = crypto.randomBytes(16).toString("hex");
+    let idempotencyKey = suppliedIdempotencyKey;
+    if (!paymentRetryId) {
+      idempotencyKey = crypto.randomBytes(16).toString("hex");
+      const created = await prisma.paymentRetry.create({
+        data: {
+          orderSyncId: orderSync.id,
+          shopifyOrderId: String(orderSync.shopifyOrderId),
+          shopifyOrderName: orderSync.shopifyOrderName || shopifyOrderName,
+          netsuiteOrderId: orderSync.netsuiteOrderId,
+          shop: targetShop,
+          amount,
+          currency: payload.currency || "USD",
+          status: "PROCESSING",
+          maxAttempts: 2,
+          idempotencyKey,
+          lastAttemptAt: new Date(),
+        },
+      });
+      reservedPaymentRetryId = created.id;
+    }
 
     console.log(
       `[Payment Capture] Starting Shopify mandate payment | Order: ${shopifyOrderName} | Amount: ${amount} | Idempotency Key: ${idempotencyKey}`
@@ -220,6 +319,7 @@ export async function action({ request }) {
       mandateId: orderDetails.mandateId,
       idempotencyKey: idempotencyKey,
       amount: amount,
+      currencyCode: payload.currency || "USD",
     });
 
     console.log(
@@ -256,10 +356,15 @@ export async function action({ request }) {
           )
         );
 
+      if (!paymentRetryId) {
+        await recordPaymentRetry(orderSync, payload, amount, userErrors.map((e) => e.message).join(", "), "PAYMENT_DECLINED");
+      }
+
       return json(
         {
           success: false,
           errors: userErrors,
+          retryable: isRetryablePaymentFailure(userErrors.map((e) => e.message).join(", ")),
         },
         { status: 400 }
       );
@@ -480,10 +585,16 @@ export async function action({ request }) {
           )
         );
 
+      if (!paymentRetryId) {
+        await recordPaymentRetry(orderSync, payload, amount, failedReason, "PAYMENT_DECLINED");
+      }
+
       return json(
         {
           success: false,
           message: `Payment was declined or timed out. Details: ${failedReason}`,
+          retryable: isRetryablePaymentFailure(failedReason),
+          outcomeUnknown: /timed? ?out|timeout|unknown|could not be confirmed/i.test(failedReason),
           paymentStatusDetails,
         },
         { status: 402 }
@@ -696,6 +807,13 @@ export async function action({ request }) {
       orderSync.id
     );
 
+    if (paymentRetryId || reservedPaymentRetryId) {
+      await prisma.paymentRetry.updateMany({
+        where: { id: paymentRetryId || reservedPaymentRetryId },
+        data: { status: "SUCCESS", nextRetryAt: null, lastAttemptAt: new Date(), paymentReference: finalPaymentReferenceId, outcomeUnknown: false, lastError: null, lastErrorCode: null },
+      });
+    }
+
     console.log(
       `[Payment Capture] ✅ Payment capture time updated | OrderSync ID: ${orderSync.id}`
     );
@@ -782,6 +900,13 @@ export async function action({ request }) {
             err
           )
         );
+
+      if (reservedPaymentRetryId || activePaymentRetryId) {
+        await prisma.paymentRetry.updateMany({
+          where: { id: reservedPaymentRetryId || activePaymentRetryId, status: "PROCESSING" },
+          data: { status: "MANUAL_REVIEW", outcomeUnknown: true, nextRetryAt: null, lastError: error?.message || "Payment result could not be confirmed", lastErrorCode: "OUTCOME_UNKNOWN" },
+        }).catch((retryError) => console.error("[Payment Retry] Failed to persist unknown outcome:", retryError));
+      }
     } else {
       console.error(
         "[Emergency Log Backup] Could not log to DB because orderSync was null. Payload Backup:",

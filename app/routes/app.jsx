@@ -22,6 +22,7 @@ export default function App() {
         {/* <s-link href="/app/logs">Sync Logs</s-link> */}
         {/* <s-link href="/app/sync">Manual Sync</s-link> */}
         <s-link href="/app/payment/logs">Payment Sync</s-link>
+        <s-link href="/app/payment/retries">Payment Retries</s-link>
         <s-link href="/app/companies">Companies</s-link>
       </s-app-nav>
       <Outlet />
