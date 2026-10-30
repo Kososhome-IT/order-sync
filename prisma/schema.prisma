@@ -50,6 +50,7 @@ model OrderSync {
   updatedAt          DateTime @updatedAt
   logs               OrderSyncLog[]
   paymentRetries     PaymentRetry[]
+  paymentAttempts    PaymentAttempt[]
 }
 
 model OrderSyncLog {
@@ -103,9 +104,14 @@ model PaymentSync {
 model PaymentRetry {
   id                  Int      @id @default(autoincrement())
 
-  // Relation to the existing order sync record
-  orderSyncId         Int      @unique
+  // Multiple payment parts can belong to one order.
+  orderSyncId         Int
   orderSync           OrderSync @relation(fields: [orderSyncId], references: [id], onDelete: Restrict)
+
+  // Stable identity of the NetSuite payment instruction / partial payment.
+  paymentInstructionId String
+  paymentKey           String   @unique
+  sourceOrderSyncLogId Int      @unique
 
   // Order identifiers
   shopifyOrderId      String
@@ -137,8 +143,34 @@ model PaymentRetry {
   updatedAt           DateTime @updatedAt
 
   @@index([status, nextRetryAt])
+  @@index([orderSyncId])
   @@index([shopifyOrderId])
   @@index([netsuiteOrderId])
+}
+
+model PaymentAttempt {
+  id                   Int      @id @default(autoincrement())
+  orderSyncId          Int
+  orderSync            OrderSync @relation(fields: [orderSyncId], references: [id], onDelete: Restrict)
+  paymentInstructionId String
+  paymentKey           String   @unique
+  status               String   @default("PROCESSING")
+  idempotencyKey       String?
+  paymentReference     String?
+  outcomeUnknown       Boolean  @default(false)
+  lastError            String?
+  lastAttemptAt        DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([orderSyncId])
+}
+
+model PaymentRetryCursor {
+  id                  Int      @id @default(autoincrement())
+  scope               String   @unique @default("PAYMENT_CAPTURE")
+  lastOrderSyncLogId  Int      @default(0)
+  updatedAt           DateTime @updatedAt
 }
 
 model PaymentRetryRun {

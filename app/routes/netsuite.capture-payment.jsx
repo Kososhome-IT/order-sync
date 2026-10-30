@@ -2,7 +2,6 @@
 import { json } from "../utils/jsonResponse";
 import crypto from "node:crypto";
 import prisma from "../db.server";
-// import { getAdminClient } from "../shopify.server";
 import { unauthenticated } from "../shopify.server";
 import {
   getOrderTransaction,
@@ -25,75 +24,23 @@ import {
   PAYMENT_CONFIG,
   SHOPIFY_CONFIG,
 } from "../constants/integrationConfig";
+import {
+  paymentInstructionIdFromPayload,
+  paymentKey,
+} from "../services/payment-retry-policy.server";
 
 const { customerDeposit: NETSUITE_CUSTOMER_DEPOSIT } = NETSUITE_CONFIG;
 
-function isRetryablePaymentFailure(message = "") {
-  const normalized = String(message).toLowerCase();
-  if (/authentication|unauthori[sz]ed|forbidden|configuration|invalid api|missing.*mandate|not found/.test(normalized)) return false;
-  if (/timed? ?out|timeout|unknown|could not be confirmed/.test(normalized) && !/card was declined|insufficient funds/.test(normalized)) return false;
-  return /declin|insufficient funds|do not honor|card.*limit|temporary.*payment|try again|processing error/.test(normalized);
-}
-
-function nextPacificRetryAt(from = new Date()) {
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Los_Angeles",
-    year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
-  });
-  const current = Object.fromEntries(formatter.formatToParts(from).map(({ type, value }) => [type, value]));
-  const target = new Date(Date.UTC(Number(current.year), Number(current.month) - 1, Number(current.day) + 1, 7));
-  const targetLocalEpoch = target.getTime();
-  let candidate = new Date(targetLocalEpoch + 8 * 60 * 60 * 1000);
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const local = Object.fromEntries(formatter.formatToParts(candidate).map(({ type, value }) => [type, value]));
-    const localEpoch = Date.UTC(Number(local.year), Number(local.month) - 1, Number(local.day), Number(local.hour), Number(local.minute), Number(local.second));
-    candidate = new Date(candidate.getTime() + targetLocalEpoch - localEpoch);
-  }
-  return candidate;
-}
-
-async function recordPaymentRetry(orderSync, payload, amount, message, code) {
-  const now = new Date();
-  const retryable = isRetryablePaymentFailure(message);
-  const existing = await prisma.paymentRetry.findUnique({ where: { orderSyncId: orderSync.id } });
-  if (existing && ["SUCCESS", "PENDING", "MANUAL_REVIEW"].includes(existing.status)) return existing;
-  return prisma.paymentRetry.upsert({
-    where: { orderSyncId: orderSync.id },
-    create: {
-      orderSyncId: orderSync.id,
-      shopifyOrderId: String(orderSync.shopifyOrderId),
-      shopifyOrderName: orderSync.shopifyOrderName || payload.shopifyOrderName,
-      netsuiteOrderId: orderSync.netsuiteOrderId,
-      shop: payload.shop || process.env.SHOP,
-      amount,
-      currency: payload.currency || "USD",
-      status: retryable ? "PENDING" : "MANUAL_REVIEW",
-      attemptCount: 0,
-      maxAttempts: 2,
-      lastAttemptAt: now,
-      outcomeUnknown: !retryable && /timed? ?out|timeout|could not be confirmed/i.test(message),
-      nextRetryAt: retryable ? nextPacificRetryAt(now) : null,
-      lastError: message,
-      lastErrorCode: code,
-    },
-    update: {
-      status: retryable ? "PENDING" : "MANUAL_REVIEW",
-      maxAttempts: 2,
-      lastAttemptAt: now,
-      outcomeUnknown: !retryable && /timed? ?out|timeout|could not be confirmed/i.test(message),
-      nextRetryAt: retryable ? nextPacificRetryAt(now) : null,
-      lastError: message,
-      lastErrorCode: code,
-    },
-  });
+async function updatePaymentAttempt(paymentKeyValue, data) {
+  if (!paymentKeyValue) return;
+  await prisma.paymentAttempt.updateMany({ where: { paymentKey: paymentKeyValue }, data });
 }
 
 export async function action({ request }) {
   let orderSync = null;
   let payload = null;
-  let reservedPaymentRetryId = null;
   let activePaymentRetryId = null;
+  let activePaymentKey = null;
 
   try {
     console.log("[Payment Capture] ========================================");
@@ -153,15 +100,17 @@ export async function action({ request }) {
 
     console.log("[Payment Capture] Shopify Admin client initialized.");
 
-    if (!shopifyOrderName || !amount) {
+    const paymentInstructionId = paymentInstructionIdFromPayload(payload);
+
+    if (!shopifyOrderName || !amount || !paymentInstructionId) {
       console.error(
-        `[Payment Capture] ❌ Missing required parameters | shopifyOrderName: ${shopifyOrderName} | amount: ${amount}`
+        `[Payment Capture] ❌ Missing required parameters | shopifyOrderName: ${shopifyOrderName} | amount: ${amount} | paymentInstructionId: ${paymentInstructionId}`
       );
 
       return json(
         {
           success: false,
-          message: "shopifyOrderName and amount are required",
+          message: "shopifyOrderName, amount, and paymentInstructionId are required",
         },
         { status: 400 }
       );
@@ -171,22 +120,22 @@ export async function action({ request }) {
       `[Payment Capture] Required parameters validated for ${shopifyOrderName}.`
     );
 
-    if (
-      custbody_wmsse_ordertype !==
-      SHOPIFY_CONFIG.order.readyToChargeTypeName
-    ) {
-      console.warn(
-        `[Payment Capture] ⚠️ Order type does not match charging criteria | Order: ${shopifyOrderName} | Received: ${custbody_wmsse_ordertype} | Expected: ${SHOPIFY_CONFIG.order.readyToChargeTypeName}`
-      );
+    // if (
+    //   custbody_wmsse_ordertype !==
+    //   SHOPIFY_CONFIG.order.readyToChargeTypeName
+    // ) {
+    //   console.warn(
+    //     `[Payment Capture] ⚠️ Order type does not match charging criteria | Order: ${shopifyOrderName} | Received: ${custbody_wmsse_ordertype} | Expected: ${SHOPIFY_CONFIG.order.readyToChargeTypeName}`
+    //   );
 
-      return json(
-        {
-          success: false,
-          message: "Order type does not match criteria for automated charging.",
-        },
-        { status: 400 }
-      );
-    }
+    //   return json(
+    //     {
+    //       success: false,
+    //       message: "Order type does not match criteria for automated charging.",
+    //     },
+    //     { status: 400 }
+    //   );
+    // }
 
     console.log(
       `[Payment Capture] Order type validated for ${shopifyOrderName}.`
@@ -228,17 +177,7 @@ export async function action({ request }) {
       `[Payment Capture] OrderSync found | DB ID: ${orderSync.id} | Shopify Order ID: ${orderSync.shopifyOrderId} | NetSuite Order ID: ${orderSync.netsuiteOrderId}`
     );
 
-    if (!paymentRetryId) {
-      const priorAttempt = await prisma.paymentRetry.findUnique({ where: { orderSyncId: orderSync.id } });
-      if (priorAttempt) {
-        const message = priorAttempt.status === "SUCCESS"
-          ? "Payment was already captured."
-          : priorAttempt.status === "PENDING"
-            ? "Payment failed and is queued for automatic retry."
-            : "A payment attempt already exists and needs review.";
-        return json({ success: priorAttempt.status === "SUCCESS", message, status: priorAttempt.status }, { status: priorAttempt.status === "SUCCESS" ? 200 : 409 });
-      }
-    }
+    activePaymentKey = paymentKey(targetShop, paymentInstructionId);
 
     const orderID = toShopifyOrderGid(orderSync.shopifyOrderId);
 
@@ -290,24 +229,54 @@ export async function action({ request }) {
     );
 
     let idempotencyKey = suppliedIdempotencyKey;
+    const paymentEventType = paymentRetryId ? "PAYMENT_RETRY" : "PAYMENT_CAPTURE";
+
     if (!paymentRetryId) {
       idempotencyKey = crypto.randomBytes(16).toString("hex");
-      const created = await prisma.paymentRetry.create({
-        data: {
+      try {
+        await prisma.paymentAttempt.create({
+          data: {
+            orderSyncId: orderSync.id,
+            paymentInstructionId,
+            paymentKey: activePaymentKey,
+            status: "PROCESSING",
+            idempotencyKey,
+            lastAttemptAt: new Date(),
+          },
+        });
+      } catch (attemptError) {
+        if (attemptError?.code !== "P2002") throw attemptError;
+        const existingAttempt = await prisma.paymentAttempt.findUnique({ where: { paymentKey: activePaymentKey } });
+        const message = existingAttempt?.status === "SUCCESS"
+          ? "This payment instruction was already captured."
+          : existingAttempt?.status === "PROCESSING"
+            ? "This payment instruction is already being processed."
+            : "This payment instruction has already failed and is awaiting retry or review.";
+        return json({ success: existingAttempt?.status === "SUCCESS", message, status: existingAttempt?.status }, { status: existingAttempt?.status === "SUCCESS" ? 200 : 409 });
+      }
+    } else {
+      idempotencyKey = suppliedIdempotencyKey || `payment-retry-${paymentRetryId}-${Date.now()}`;
+      const existingAttempt = await prisma.paymentAttempt.findUnique({ where: { paymentKey: activePaymentKey } });
+      if (existingAttempt?.status === "SUCCESS") {
+        return json({ success: true, message: "This payment instruction was already captured.", status: "SUCCESS" });
+      }
+      await prisma.paymentAttempt.upsert({
+        where: { paymentKey: activePaymentKey },
+        create: {
           orderSyncId: orderSync.id,
-          shopifyOrderId: String(orderSync.shopifyOrderId),
-          shopifyOrderName: orderSync.shopifyOrderName || shopifyOrderName,
-          netsuiteOrderId: orderSync.netsuiteOrderId,
-          shop: targetShop,
-          amount,
-          currency: payload.currency || "USD",
+          paymentInstructionId,
+          paymentKey: activePaymentKey,
           status: "PROCESSING",
-          maxAttempts: 2,
           idempotencyKey,
           lastAttemptAt: new Date(),
         },
+        update: {
+          status: "PROCESSING",
+          idempotencyKey,
+          outcomeUnknown: false,
+          lastAttemptAt: new Date(),
+        },
       });
-      reservedPaymentRetryId = created.id;
     }
 
     console.log(
@@ -343,6 +312,7 @@ export async function action({ request }) {
       await syncLogger
         .failed({
           orderSyncId: orderSync.id,
+          eventType: paymentEventType,
           message: `failed with UserErrors: ${userErrors
             .map((e) => e.message)
             .join(", ")}`,
@@ -356,15 +326,17 @@ export async function action({ request }) {
           )
         );
 
-      if (!paymentRetryId) {
-        await recordPaymentRetry(orderSync, payload, amount, userErrors.map((e) => e.message).join(", "), "PAYMENT_DECLINED");
-      }
+      await updatePaymentAttempt(activePaymentKey, {
+        status: "FAILED",
+        outcomeUnknown: false,
+        lastError: userErrors.map((error) => error.message).join(", "),
+        lastAttemptAt: new Date(),
+      });
 
       return json(
         {
           success: false,
           errors: userErrors,
-          retryable: isRetryablePaymentFailure(userErrors.map((e) => e.message).join(", ")),
         },
         { status: 400 }
       );
@@ -533,6 +505,7 @@ export async function action({ request }) {
             await syncLogger
               .failed({
                 orderSyncId: orderSync.id,
+                eventType: paymentEventType,
                 message: `Polling attempt ${pollAttempt}/${PAYMENT_CONFIG.jobPolling.maxAttempts} failed with network/API error: ${pollError.message}`,
                 requestPayload: payload,
                 responsePayload: {
@@ -572,6 +545,7 @@ export async function action({ request }) {
       await syncLogger
         .failed({
           orderSyncId: orderSync.id,
+          eventType: paymentEventType,
           message: `Payment background check failed to confirm success. State details: ${failedReason}`,
           requestPayload: payload,
           responsePayload: {
@@ -585,16 +559,19 @@ export async function action({ request }) {
           )
         );
 
-      if (!paymentRetryId) {
-        await recordPaymentRetry(orderSync, payload, amount, failedReason, "PAYMENT_DECLINED");
-      }
+      const outcomeUnknown = /timed? ?out|timeout|unknown|could not be confirmed/i.test(failedReason);
+      await updatePaymentAttempt(activePaymentKey, {
+        status: outcomeUnknown ? "UNKNOWN" : "FAILED",
+        outcomeUnknown,
+        lastError: failedReason,
+        lastAttemptAt: new Date(),
+      });
 
       return json(
         {
           success: false,
           message: `Payment was declined or timed out. Details: ${failedReason}`,
-          retryable: isRetryablePaymentFailure(failedReason),
-          outcomeUnknown: /timed? ?out|timeout|unknown|could not be confirmed/i.test(failedReason),
+          outcomeUnknown,
           paymentStatusDetails,
         },
         { status: 402 }
@@ -807,9 +784,17 @@ export async function action({ request }) {
       orderSync.id
     );
 
-    if (paymentRetryId || reservedPaymentRetryId) {
+    await updatePaymentAttempt(activePaymentKey, {
+      status: "SUCCESS",
+      paymentReference: finalPaymentReferenceId,
+      outcomeUnknown: false,
+      lastError: null,
+      lastAttemptAt: new Date(),
+    });
+
+    if (paymentRetryId) {
       await prisma.paymentRetry.updateMany({
-        where: { id: paymentRetryId || reservedPaymentRetryId },
+        where: { id: paymentRetryId },
         data: { status: "SUCCESS", nextRetryAt: null, lastAttemptAt: new Date(), paymentReference: finalPaymentReferenceId, outcomeUnknown: false, lastError: null, lastErrorCode: null },
       });
     }
@@ -825,6 +810,7 @@ export async function action({ request }) {
     await syncLogger
       .success({
         orderSyncId: orderSync.id,
+        eventType: paymentEventType,
         message: `Payment of ${amount} successfully settled. Ref: ${finalPaymentReferenceId}`,
         requestPayload: payload,
         responsePayload: captureResponse?.data || {},
@@ -888,6 +874,7 @@ export async function action({ request }) {
       await syncLogger
         .failed({
           orderSyncId: orderSync.id,
+          eventType: activePaymentRetryId ? "PAYMENT_RETRY" : "PAYMENT_CAPTURE",
           message: `Critical system failure: ${error.message}`,
           requestPayload: payload || {},
           responsePayload: {
@@ -901,9 +888,16 @@ export async function action({ request }) {
           )
         );
 
-      if (reservedPaymentRetryId || activePaymentRetryId) {
+      await updatePaymentAttempt(activePaymentKey, {
+        status: "UNKNOWN",
+        outcomeUnknown: true,
+        lastError: error?.message || "Payment result could not be confirmed",
+        lastAttemptAt: new Date(),
+      }).catch((attemptError) => console.error("[Payment Attempt] Failed to persist unknown outcome:", attemptError));
+
+      if (activePaymentRetryId) {
         await prisma.paymentRetry.updateMany({
-          where: { id: reservedPaymentRetryId || activePaymentRetryId, status: "PROCESSING" },
+          where: { id: activePaymentRetryId, status: "PROCESSING" },
           data: { status: "MANUAL_REVIEW", outcomeUnknown: true, nextRetryAt: null, lastError: error?.message || "Payment result could not be confirmed", lastErrorCode: "OUTCOME_UNKNOWN" },
         }).catch((retryError) => console.error("[Payment Retry] Failed to persist unknown outcome:", retryError));
       }

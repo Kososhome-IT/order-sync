@@ -7,6 +7,10 @@
 
 define(['N/record', 'N/https', 'N/search', 'N/log'], (record, https, search, log) => {
 
+    // Set this to the NetSuite custom body field that uniquely identifies one
+    // payment instruction / partial payment. It must not be the sales-order ID.
+    const PAYMENT_INSTRUCTION_FIELD_ID = 'custbody_ch_payment_instruction_id';
+
     const afterSubmit = (context) => {
 
         try {
@@ -37,6 +41,8 @@ define(['N/record', 'N/https', 'N/search', 'N/log'], (record, https, search, log
             log.debug('orderStatus', orderStatus);
             let depAmtToChargeOnShopify = salesOrder.getText('custbody_ch_deposit_amount_charge_shop');
             log.debug('depAmtToChargeOnShopify', depAmtToChargeOnShopify);
+            const paymentInstructionId = salesOrder.getValue(PAYMENT_INSTRUCTION_FIELD_ID);
+            log.debug('paymentInstructionId', paymentInstructionId);
             const soLineCount = salesOrder.getLineCount({ sublistId: 'item' });
             const classes = [];
             for (let i = 0; i < soLineCount; i++) {
@@ -80,9 +86,14 @@ define(['N/record', 'N/https', 'N/search', 'N/log'], (record, https, search, log
             }
 
             if (context.type === context.UserEventType.EDIT && newWmsOrderTypeValue !== oldWmsOrderTypeValue && newWmsOrderType === 'Shopify Ready To Charge' && terms === 'Credit Card') {
+                if (!paymentInstructionId) {
+                    log.error('Missing payment instruction ID', `Set ${PAYMENT_INSTRUCTION_FIELD_ID} to the unique ID for this payment part before charging.`);
+                    return;
+                }
                 const paymentCapture = {
                     "shopifyOrderName": shopifyOrderName,
                     "amount": depAmtToChargeOnShopify,
+                    "paymentInstructionId": String(paymentInstructionId),
                     "custbody_wmsse_ordertype": newWmsOrderType,
                     "transactionType": orderStatus,
                     "netsuiteSalesOrderId": soId

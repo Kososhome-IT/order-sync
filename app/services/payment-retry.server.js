@@ -2,6 +2,7 @@ import { json } from "../utils/jsonResponse";
 import prisma from "../db.server";
 import { action as capturePayment } from "../routes/netsuite.capture-payment";
 import { SHOPIFY_CONFIG } from "../constants/integrationConfig";
+import { isRetryablePaymentFailure } from "./payment-retry-policy.server";
 
 function captureRequest(retry, attempt, key) {
   return new Request("https://internal.local/netsuite/capture-payment", {
@@ -14,6 +15,7 @@ function captureRequest(retry, attempt, key) {
       netsuiteSalesOrderId: retry.netsuiteOrderId,
       custbody_wmsse_ordertype: SHOPIFY_CONFIG.order.readyToChargeTypeName,
       shop: retry.shop || process.env.SHOP,
+      paymentInstructionId: retry.paymentInstructionId,
       paymentRetryId: retry.id,
       retryAttempt: attempt,
       idempotencyKey: key,
@@ -26,11 +28,12 @@ export async function runPaymentAttempt(retry, attempt, key) {
     const response = await capturePayment({ request: captureRequest(retry, attempt, key) });
     const result = await response.json();
     if (response.ok && result.success) return { success: true };
+    const message = result.message || result.errors?.map((error) => error.message).join(", ") || "Payment retry failed";
     return {
       success: false,
-      retryable: Boolean(result.retryable),
+      retryable: Boolean(result.retryable) || isRetryablePaymentFailure(message),
       unknown: Boolean(result.outcomeUnknown),
-      message: result.message || result.errors?.map((error) => error.message).join(", ") || "Payment retry failed",
+      message,
     };
   } catch (error) {
     return { success: false, unknown: true, message: error?.message || "Payment result could not be confirmed" };
