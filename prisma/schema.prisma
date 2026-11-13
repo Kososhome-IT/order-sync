@@ -186,3 +186,30 @@ model PaymentRetryRun {
 
   @@index([startedAt])
 }
+
+model OrderResyncCursor {
+  id          Int      @id @default(autoincrement())
+  scope       String   @unique @default("SHOPIFY_ORDER_RESYNC")
+  lastOrderId String   @default("0")
+  isRunning   Boolean  @default(false)
+  updatedAt   DateTime @updatedAt
+}
+
+model OrderResyncRun {
+  id              Int       @id @default(autoincrement())
+  status          String    @default("PROCESSING")
+  cursorStart     String
+  cursorEnd       String?
+  fetchedCount    Int       @default(0)
+  createdCount    Int       @default(0)
+  retriedCount    Int       @default(0)
+  successfulCount Int       @default(0)
+  skippedCount    Int       @default(0)
+  failedCount     Int       @default(0)
+  results         Json?
+  errorMessage    String?
+  startedAt       DateTime  @default(now())
+  completedAt     DateTime?
+
+  @@index([startedAt])
+}

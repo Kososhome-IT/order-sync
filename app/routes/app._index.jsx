@@ -95,6 +95,7 @@ export default function OrderSyncDashboard() {
   const [toast, setToast] = useState(null);
   const [retryingId, setRetryingId] = useState(null);
   const [search, setSearch] = useState(loaderSearch || "");
+  const [resyncing, setResyncing] = useState(false);
   const showToast = (message, isError = false) => {
   shopify.toast.show(message, {
     duration: 5000,
@@ -140,11 +141,26 @@ const retryOrder = async (orderSyncId) => {
     setRetryingId(null);
   }
 };
+const resyncOrders = async () => {
+  setResyncing(true);
+  try {
+    const response = await fetch("/app/order-resync", { method: "POST" });
+    const result = await response.json();
+    if (!response.ok || !result.success) throw new Error(result.error || "Order resync failed");
+    const { summary } = result;
+    shopify.toast.show(`Resync complete: ${summary.created} created, ${summary.retried} retried, ${summary.skipped} skipped, ${summary.failed} failed`, { duration: 7000, isError: summary.failed > 0 });
+    window.location.reload();
+  } catch (error) {
+    shopify.toast.show(error.message || "Order resync failed", { duration: 7000, isError: true });
+  } finally {
+    setResyncing(false);
+  }
+};
   return (
     <s-page title="Order Sync Dashboard" inlineSize="large">
       <s-section padding="none">
         <s-grid
-          gridTemplateColumns="auto auto"
+          gridTemplateColumns="auto auto auto"
           gap="small"
           padding="small"
           placeContent="space-between space-between"
@@ -157,6 +173,11 @@ const retryOrder = async (orderSyncId) => {
 
           <s-grid-item>
             <s-badge tone="info">{orders.length} records</s-badge>
+          </s-grid-item>
+          <s-grid-item>
+            <s-button variant="primary" disabled={resyncing} onClick={resyncOrders}>
+              {resyncing ? "Resyncing orders…" : "Resync orders"}
+            </s-button>
           </s-grid-item>
         </s-grid>
         <s-grid
