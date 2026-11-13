@@ -38,11 +38,16 @@ export function nextPacificRetryAt(from = new Date()) {
   return candidate;
 }
 
-export function paymentKey(shop, paymentInstructionId) {
-  return `${String(shop || "").trim().toLowerCase()}:${String(paymentInstructionId).trim()}`;
+export function normalizePaymentAttemptDateTime(value) {
+  if (!value) return "";
+  const input = String(value).trim();
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(input)) return "";
+  const date = new Date(input);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
 }
 
-export function paymentInstructionIdFromPayload(payload = {}) {
-  const value = payload.paymentInstructionId || payload.netsuitePaymentInstructionId;
-  return value ? String(value).trim() : "";
+export function paymentKey(shop, orderSyncId, paymentAttemptDateTime) {
+  const normalizedDateTime = normalizePaymentAttemptDateTime(paymentAttemptDateTime);
+  if (!normalizedDateTime) return "";
+  return `${String(shop || "").trim().toLowerCase()}:${String(orderSyncId)}:${normalizedDateTime}`;
 }

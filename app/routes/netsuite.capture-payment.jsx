@@ -22,10 +22,9 @@ import { syncLogger } from "../repositories/logger.service";
 import {
   NETSUITE_CONFIG,
   PAYMENT_CONFIG,
-  SHOPIFY_CONFIG,
 } from "../constants/integrationConfig";
 import {
-  paymentInstructionIdFromPayload,
+  normalizePaymentAttemptDateTime,
   paymentKey,
 } from "../services/payment-retry-policy.server";
 
@@ -67,8 +66,8 @@ export async function action({ request }) {
       shopifyOrderName,
       amount,
       netsuiteSalesOrderId,
-      custbody_wmsse_ordertype,
       shop,
+      paymentAttemptDateTime: suppliedPaymentAttemptDateTime,
       idempotencyKey: suppliedIdempotencyKey,
       paymentRetryId,
     } = payload;
@@ -100,17 +99,17 @@ export async function action({ request }) {
 
     console.log("[Payment Capture] Shopify Admin client initialized.");
 
-    const paymentInstructionId = paymentInstructionIdFromPayload(payload);
+    const paymentAttemptDateTime = normalizePaymentAttemptDateTime(suppliedPaymentAttemptDateTime);
 
-    if (!shopifyOrderName || !amount || !paymentInstructionId) {
+    if (!shopifyOrderName || !amount || !paymentAttemptDateTime) {
       console.error(
-        `[Payment Capture] ❌ Missing required parameters | shopifyOrderName: ${shopifyOrderName} | amount: ${amount} | paymentInstructionId: ${paymentInstructionId}`
+        `[Payment Capture] ❌ Missing or invalid required parameters | shopifyOrderName: ${shopifyOrderName} | amount: ${amount} | paymentAttemptDateTime: ${suppliedPaymentAttemptDateTime}`
       );
 
       return json(
         {
           success: false,
-          message: "shopifyOrderName, amount, and paymentInstructionId are required",
+          message: "shopifyOrderName, amount, and a valid paymentAttemptDateTime are required",
         },
         { status: 400 }
       );
@@ -177,7 +176,7 @@ export async function action({ request }) {
       `[Payment Capture] OrderSync found | DB ID: ${orderSync.id} | Shopify Order ID: ${orderSync.shopifyOrderId} | NetSuite Order ID: ${orderSync.netsuiteOrderId}`
     );
 
-    activePaymentKey = paymentKey(targetShop, paymentInstructionId);
+    activePaymentKey = paymentKey(targetShop, orderSync.id, paymentAttemptDateTime);
 
     const orderID = toShopifyOrderGid(orderSync.shopifyOrderId);
 
@@ -237,7 +236,7 @@ export async function action({ request }) {
         await prisma.paymentAttempt.create({
           data: {
             orderSyncId: orderSync.id,
-            paymentInstructionId,
+            paymentAttemptDateTime: new Date(paymentAttemptDateTime),
             paymentKey: activePaymentKey,
             status: "PROCESSING",
             idempotencyKey,
@@ -248,23 +247,23 @@ export async function action({ request }) {
         if (attemptError?.code !== "P2002") throw attemptError;
         const existingAttempt = await prisma.paymentAttempt.findUnique({ where: { paymentKey: activePaymentKey } });
         const message = existingAttempt?.status === "SUCCESS"
-          ? "This payment instruction was already captured."
+          ? "This payment attempt was already captured."
           : existingAttempt?.status === "PROCESSING"
-            ? "This payment instruction is already being processed."
-            : "This payment instruction has already failed and is awaiting retry or review.";
+            ? "This payment attempt is already being processed."
+            : "This payment attempt has already failed and is awaiting retry or review.";
         return json({ success: existingAttempt?.status === "SUCCESS", message, status: existingAttempt?.status }, { status: existingAttempt?.status === "SUCCESS" ? 200 : 409 });
       }
     } else {
       idempotencyKey = suppliedIdempotencyKey || `payment-retry-${paymentRetryId}-${Date.now()}`;
       const existingAttempt = await prisma.paymentAttempt.findUnique({ where: { paymentKey: activePaymentKey } });
       if (existingAttempt?.status === "SUCCESS") {
-        return json({ success: true, message: "This payment instruction was already captured.", status: "SUCCESS" });
+        return json({ success: true, message: "This payment attempt was already captured.", status: "SUCCESS" });
       }
       await prisma.paymentAttempt.upsert({
         where: { paymentKey: activePaymentKey },
         create: {
           orderSyncId: orderSync.id,
-          paymentInstructionId,
+          paymentAttemptDateTime: new Date(paymentAttemptDateTime),
           paymentKey: activePaymentKey,
           status: "PROCESSING",
           idempotencyKey,

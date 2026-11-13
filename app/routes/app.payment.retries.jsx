@@ -79,7 +79,7 @@ export default function PaymentRetryDashboard() {
           <s-table>
             <s-table-header-row>
               <s-table-header>Order</s-table-header><s-table-header>Amount</s-table-header>
-              <s-table-header>Payment part</s-table-header>
+              <s-table-header>Payment date/time</s-table-header>
               <s-table-header>Status</s-table-header><s-table-header>Attempts</s-table-header>
               <s-table-header>Next retry</s-table-header><s-table-header>Last error</s-table-header>
               <s-table-header>Action</s-table-header>
@@ -88,7 +88,7 @@ export default function PaymentRetryDashboard() {
               {retries.map((retry) => <s-table-row key={retry.id}>
                 <s-table-cell>{retry.shopifyOrderName || retry.shopifyOrderId}</s-table-cell>
                 <s-table-cell>{retry.amount} {retry.currency || ""}</s-table-cell>
-                <s-table-cell>{retry.paymentInstructionId}</s-table-cell>
+                <s-table-cell>{new Date(retry.paymentAttemptDateTime).toLocaleString()}</s-table-cell>
                 <s-table-cell><s-badge tone={retry.status === "SUCCESS" ? "success" : retry.status === "MANUAL_REVIEW" ? "critical" : "attention"}>{retry.status}</s-badge></s-table-cell>
                 <s-table-cell>{retry.attemptCount} / {retry.maxAttempts}</s-table-cell>
                 <s-table-cell>{retry.nextRetryAt ? new Date(retry.nextRetryAt).toLocaleString() : "—"}</s-table-cell>

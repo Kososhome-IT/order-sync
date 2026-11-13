@@ -108,8 +108,9 @@ model PaymentRetry {
   orderSyncId         Int
   orderSync           OrderSync @relation(fields: [orderSyncId], references: [id], onDelete: Restrict)
 
-  // Stable identity of the NetSuite payment instruction / partial payment.
-  paymentInstructionId String
+  // Retained for legacy rows; new payments are identified by attempt date/time.
+  paymentInstructionId String?
+  paymentAttemptDateTime DateTime
   paymentKey           String   @unique
   sourceOrderSyncLogId Int      @unique
 
@@ -152,7 +153,8 @@ model PaymentAttempt {
   id                   Int      @id @default(autoincrement())
   orderSyncId          Int
   orderSync            OrderSync @relation(fields: [orderSyncId], references: [id], onDelete: Restrict)
-  paymentInstructionId String
+  paymentInstructionId String?
+  paymentAttemptDateTime DateTime
   paymentKey           String   @unique
   status               String   @default("PROCESSING")
   idempotencyKey       String?

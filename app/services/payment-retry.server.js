@@ -15,7 +15,7 @@ function captureRequest(retry, attempt, key) {
       netsuiteSalesOrderId: retry.netsuiteOrderId,
       custbody_wmsse_ordertype: SHOPIFY_CONFIG.order.readyToChargeTypeName,
       shop: retry.shop || process.env.SHOP,
-      paymentInstructionId: retry.paymentInstructionId,
+      paymentAttemptDateTime: retry.paymentAttemptDateTime.toISOString(),
       paymentRetryId: retry.id,
       retryAttempt: attempt,
       idempotencyKey: key,

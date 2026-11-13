@@ -6,7 +6,7 @@ import {
   failureReasonFromLog,
   isRetryablePaymentFailure,
   nextPacificRetryAt,
-  paymentInstructionIdFromPayload,
+  normalizePaymentAttemptDateTime,
   paymentKey,
 } from "../services/payment-retry-policy.server";
 import { syncLogger } from "../repositories/logger.service";
@@ -14,6 +14,16 @@ import { syncLogger } from "../repositories/logger.service";
 const MAX_ATTEMPTS = 2;
 const CURSOR_SCOPE = "PAYMENT_CAPTURE";
 const LOG_BATCH_SIZE = 250;
+
+function initialPaymentRetryCursor() {
+  const configured = process.env.PAYMENT_RETRY_INITIAL_LOG_ID;
+  if (configured === undefined || configured.trim() === "") return 0;
+  const value = Number(configured);
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error("PAYMENT_RETRY_INITIAL_LOG_ID must be a non-negative integer");
+  }
+  return value;
+}
 
 function authorized(request) {
   const secret = process.env.PAYMENT_RETRY_CRON_SECRET;
@@ -30,19 +40,20 @@ async function advanceCursor(cursorId, logId) {
 
 async function ingestPaymentLog(log, runId) {
   const payload = logPayload(log.requestPayload);
-  const instructionId = paymentInstructionIdFromPayload(payload);
+  const paymentAttemptDateTime = normalizePaymentAttemptDateTime(payload.paymentAttemptDateTime)
+    || log.createdAt.toISOString();
   const shop = payload.shop || process.env.SHOP;
   const reason = failureReasonFromLog(log);
 
-  if (!instructionId || !shop) {
+  if (!paymentAttemptDateTime || !shop) {
     await syncLogger.log({
       orderSyncId: log.orderSyncId,
       eventType: "PAYMENT_RETRY_INGESTION",
       status: "SKIPPED",
-      message: "Failed payment log was skipped because paymentInstructionId or shop is missing.",
+      message: "Failed payment log was skipped because payment attempt date/time or shop is missing.",
       requestPayload: { sourceOrderSyncLogId: log.id, schedulerRunId: runId },
     });
-    return { sourceLogId: log.id, status: "SKIPPED", reason: "Missing payment instruction identity" };
+    return { sourceLogId: log.id, status: "SKIPPED", reason: "Missing payment attempt date/time or shop" };
   }
 
   if (!isRetryablePaymentFailure(reason)) {
@@ -56,41 +67,53 @@ async function ingestPaymentLog(log, runId) {
       eventType: "PAYMENT_RETRY_INGESTION",
       status: "SKIPPED",
       message: "Retryable payment failure was skipped because its amount is invalid.",
-      requestPayload: { sourceOrderSyncLogId: log.id, schedulerRunId: runId, paymentInstructionId: instructionId },
+      requestPayload: { sourceOrderSyncLogId: log.id, schedulerRunId: runId, paymentAttemptDateTime },
     });
     return { sourceLogId: log.id, status: "SKIPPED", reason: "Invalid payment amount" };
   }
 
-  const key = paymentKey(shop, instructionId);
-  const retry = await prisma.paymentRetry.upsert({
-    where: { paymentKey: key },
-    create: {
-      orderSyncId: log.orderSyncId,
-      paymentInstructionId: instructionId,
-      paymentKey: key,
-      sourceOrderSyncLogId: log.id,
-      shopifyOrderId: String(log.orderSync.shopifyOrderId || ""),
-      shopifyOrderName: log.orderSync.shopifyOrderName || payload.shopifyOrderName,
-      netsuiteOrderId: payload.netsuiteSalesOrderId || log.orderSync.netsuiteOrderId,
-      shop,
-      amount: String(amount),
-      currency: payload.currency || "USD",
-      status: "PENDING",
-      attemptCount: 0,
-      maxAttempts: MAX_ATTEMPTS,
-      nextRetryAt: nextPacificRetryAt(log.createdAt),
-      lastError: reason,
-      lastErrorCode: "RETRYABLE_PAYMENT_FAILURE",
-    },
-    update: {},
-  });
+  // Every failed PAYMENT_CAPTURE log is its own payment event and retry item.
+  // The log primary key prevents separate captures on one order from merging.
+  const key = `${String(shop).trim().toLowerCase()}:capture-log:${log.id}`;
+  const attemptKey = paymentKey(shop, log.orderSyncId, paymentAttemptDateTime);
+  let retry = await prisma.paymentRetry.findUnique({ where: { sourceOrderSyncLogId: log.id } });
+  let createdFromThisLog = false;
+  if (!retry) {
+    try {
+      retry = await prisma.paymentRetry.create({
+        data: {
+          orderSyncId: log.orderSyncId,
+          paymentAttemptDateTime: new Date(paymentAttemptDateTime),
+          paymentKey: key,
+          sourceOrderSyncLogId: log.id,
+          shopifyOrderId: String(log.orderSync.shopifyOrderId || ""),
+          shopifyOrderName: log.orderSync.shopifyOrderName || payload.shopifyOrderName,
+          netsuiteOrderId: payload.netsuiteSalesOrderId || log.orderSync.netsuiteOrderId,
+          shop,
+          amount: String(amount),
+          currency: payload.currency || "USD",
+          status: "PENDING",
+          attemptCount: 0,
+          maxAttempts: MAX_ATTEMPTS,
+          nextRetryAt: nextPacificRetryAt(log.createdAt),
+          lastError: reason,
+          lastErrorCode: "RETRYABLE_PAYMENT_FAILURE",
+        },
+      });
+      createdFromThisLog = true;
+    } catch (error) {
+      if (error?.code !== "P2002") throw error;
+      retry = await prisma.paymentRetry.findUnique({ where: { sourceOrderSyncLogId: log.id } });
+      if (!retry) throw error;
+    }
+  }
 
   await prisma.paymentAttempt.upsert({
-    where: { paymentKey: key },
+    where: { paymentKey: attemptKey },
     create: {
       orderSyncId: log.orderSyncId,
-      paymentInstructionId: instructionId,
-      paymentKey: key,
+      paymentAttemptDateTime: new Date(paymentAttemptDateTime),
+      paymentKey: attemptKey,
       status: "FAILED",
       lastError: reason,
       lastAttemptAt: log.createdAt,
@@ -98,14 +121,13 @@ async function ingestPaymentLog(log, runId) {
     update: {},
   });
 
-  const createdFromThisLog = retry.sourceOrderSyncLogId === log.id;
   if (createdFromThisLog) {
     await syncLogger.log({
       orderSyncId: log.orderSyncId,
       eventType: "PAYMENT_RETRY_INGESTION",
       status: "PENDING",
-      message: `Retryable payment failure added to the retry queue for payment instruction ${instructionId}.`,
-      requestPayload: { sourceOrderSyncLogId: log.id, schedulerRunId: runId, paymentInstructionId: instructionId },
+      message: `Retryable payment failure added to the retry queue for payment attempt ${paymentAttemptDateTime}.`,
+      requestPayload: { sourceOrderSyncLogId: log.id, schedulerRunId: runId, paymentAttemptDateTime },
       responsePayload: { paymentRetryId: retry.id, nextRetryAt: retry.nextRetryAt },
     });
   }
@@ -125,11 +147,25 @@ export async function action({ request }) {
   console.log(`[Payment Retry Scheduler] Run ${run.id} started`, { schedulerJobName });
 
   try {
-    const cursor = await prisma.paymentRetryCursor.upsert({
-      where: { scope: CURSOR_SCOPE },
-      create: { scope: CURSOR_SCOPE },
-      update: {},
-    });
+    let cursor = await prisma.paymentRetryCursor.findUnique({ where: { scope: CURSOR_SCOPE } });
+    if (!cursor) {
+      try {
+        cursor = await prisma.paymentRetryCursor.create({
+          data: {
+            scope: CURSOR_SCOPE,
+            lastOrderSyncLogId: initialPaymentRetryCursor(),
+          },
+        });
+      } catch (error) {
+        if (error?.code !== "P2002") throw error;
+        cursor = await prisma.paymentRetryCursor.findUnique({ where: { scope: CURSOR_SCOPE } });
+        if (!cursor) throw error;
+      }
+      console.log(`[Payment Retry Scheduler] Initialized cursor`, {
+        cursorId: cursor.id,
+        lastOrderSyncLogId: cursor.lastOrderSyncLogId,
+      });
+    }
     const stale = await prisma.paymentRetry.updateMany({
       where: { status: "PROCESSING", lastAttemptAt: { lt: new Date(now.getTime() - 10 * 60 * 1000) } },
       data: { status: "MANUAL_REVIEW", nextRetryAt: null, outcomeUnknown: true, lastError: "Retry process stopped before its result was recorded", lastErrorCode: "OUTCOME_UNKNOWN" },
@@ -166,8 +202,8 @@ export async function action({ request }) {
         orderSyncId: retry.orderSyncId,
         eventType: "PAYMENT_RETRY",
         status: "PROCESSING",
-        message: `Automatic payment retry ${attempt}/${MAX_ATTEMPTS} started for payment instruction ${retry.paymentInstructionId}.`,
-        requestPayload: { paymentRetryId: retry.id, schedulerRunId: run.id, attempt, paymentInstructionId: retry.paymentInstructionId },
+        message: `Automatic payment retry ${attempt}/${MAX_ATTEMPTS} started for payment attempt ${retry.paymentAttemptDateTime.toISOString()}.`,
+        requestPayload: { paymentRetryId: retry.id, schedulerRunId: run.id, attempt, paymentAttemptDateTime: retry.paymentAttemptDateTime.toISOString() },
       });
 
       const outcome = await runPaymentAttempt(retry, attempt, key);
